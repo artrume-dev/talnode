@@ -18,34 +18,6 @@ const AI_PROVIDER = import.meta.env.VITE_AI_PROVIDER || 'openai';
 const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
 const ANTHROPIC_API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
 
-// Base CV content (could be loaded from server or hardcoded)
-const BASE_CV = `# Samar Mustafa Ascari
-Senior Product Designer | Design Systems Leader
-
-## Professional Summary
-Enterprise design systems leader with 10+ years experience building scalable design infrastructure. Led Canon EMEA's design system across 57 sites and 27 languages. Expert in design tokens, component libraries, and developer experience. Recent focus on AI-augmented workflows and agentic systems.
-
-## Experience
-
-### Senior Product Designer - Canon EMEA (2019-Present)
-- Built and maintained enterprise design system serving 57 websites across 27 languages
-- Developed Token Chain: design token visualization and management tool
-- Led cross-functional governance and adoption initiatives
-- Implemented AI-augmented workflows using Claude Code and MCP
-- Technologies: React, TypeScript, Figma, Storybook, Design Tokens
-
-### Design Systems Engineer - Previous Role
-- Created component libraries and documentation systems
-- Established design-dev collaboration workflows
-- Built tooling for design token automation
-
-## Skills
-- Design Systems: Figma, Storybook, Design Tokens, Component Libraries
-- Frontend: React, TypeScript, JavaScript, HTML/CSS
-- Tools: Git, npm, Claude Code, MCP, Agentic Systems
-- Leadership: Cross-functional collaboration, Governance, Developer Experience
-`;
-
 class AIService {
   private async callOpenAI(prompt: string): Promise<string> {
     if (!OPENAI_API_KEY) {
@@ -117,7 +89,11 @@ class AIService {
     return data.content[0].text;
   }
 
-  async optimizeCV(job: Job): Promise<CVOptimizationResult> {
+  async optimizeCV(job: Job, cvContent: string): Promise<CVOptimizationResult> {
+    if (!cvContent || cvContent.trim().length === 0) {
+      throw new Error('No CV content provided. Please upload a CV first.');
+    }
+
     const prompt = `
 You are a CV optimization specialist. Analyze this job posting and create 3 optimized CV versions.
 
@@ -128,8 +104,8 @@ You are a CV optimization specialist. Analyze this job posting and create 3 opti
 **Requirements:** ${job.requirements || 'Not provided'}
 **Current Alignment:** ${job.alignment_score || 'Unknown'}%
 
-## Base CV
-${BASE_CV}
+## Candidate's CV
+${cvContent}
 
 ## Task
 Create 3 CV versions with different optimization levels:
@@ -169,7 +145,7 @@ Return your response in this exact JSON format:
         "Updated professional summary",
         "Highlighted relevant experience"
       ],
-      "content": "# Samar Mustafa Ascari\\n..."
+      "content": "# Full CV content here..."
     },
     {
       "type": "optimized",
@@ -180,7 +156,7 @@ Return your response in this exact JSON format:
         "Reordered achievements by relevance",
         "Updated skills section priority"
       ],
-      "content": "# Samar Mustafa Ascari\\n..."
+      "content": "# Full CV content here..."
     },
     {
       "type": "stretch",
@@ -191,7 +167,7 @@ Return your response in this exact JSON format:
         "Added context for emerging skills",
         "Comprehensive keyword alignment"
       ],
-      "content": "# Samar Mustafa Ascari\\n..."
+      "content": "# Full CV content here..."
     }
   ]
 }
@@ -215,9 +191,18 @@ IMPORTANT:
       }
 
       // Extract JSON from response (might be wrapped in markdown code blocks)
-      const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/) || response.match(/```\n([\s\S]*?)\n```/);
-      const jsonStr = jsonMatch ? jsonMatch[1] : response;
-
+      let jsonStr = response.trim();
+      
+      // Try to extract JSON from markdown code blocks
+      const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[1].trim();
+      }
+      
+      // Remove any leading/trailing whitespace
+      jsonStr = jsonStr.trim();
+      
+      // Parse JSON
       const result = JSON.parse(jsonStr);
       return result;
     } catch (error) {

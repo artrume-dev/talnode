@@ -211,6 +211,255 @@ export class JobDatabase {
       .run(company, careersUrl);
   }
 
+  // Custom companies operations
+  getAllCompanies(): any[] {
+    return this.db.prepare(`
+      SELECT * FROM custom_companies
+      ORDER BY added_by_user ASC, company_name ASC
+    `).all();
+  }
+
+  addCustomCompany(data: {
+    company_name: string;
+    careers_url: string;
+    ats_type: string;
+    greenhouse_id?: string;
+    lever_id?: string;
+    workday_id?: string;
+    ashby_id?: string;
+    smartrecruiters_id?: string;
+  }): any {
+    const result = this.db.prepare(`
+      INSERT INTO custom_companies (
+        company_name, careers_url, ats_type, 
+        greenhouse_id, lever_id, workday_id, ashby_id, smartrecruiters_id,
+        is_active, added_by_user
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1)
+    `).run(
+      data.company_name,
+      data.careers_url,
+      data.ats_type,
+      data.greenhouse_id || null,
+      data.lever_id || null,
+      data.workday_id || null,
+      data.ashby_id || null,
+      data.smartrecruiters_id || null
+    );
+
+    return this.db.prepare('SELECT * FROM custom_companies WHERE id = ?').get(result.lastInsertRowid);
+  }
+
+  getCompanyById(id: number): any {
+    return this.db.prepare('SELECT * FROM custom_companies WHERE id = ?').get(id);
+  }
+
+  updateCustomCompany(id: number, updates: {
+    is_active?: boolean;
+    company_name?: string;
+    careers_url?: string;
+    ats_type?: string;
+  }): any {
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    if (typeof updates.is_active === 'boolean') {
+      fields.push('is_active = ?');
+      values.push(updates.is_active ? 1 : 0);
+    }
+    if (updates.company_name) {
+      fields.push('company_name = ?');
+      values.push(updates.company_name);
+    }
+    if (updates.careers_url) {
+      fields.push('careers_url = ?');
+      values.push(updates.careers_url);
+    }
+    if (updates.ats_type) {
+      fields.push('ats_type = ?');
+      values.push(updates.ats_type);
+    }
+
+    if (fields.length === 0) {
+      throw new Error('No fields to update');
+    }
+
+    values.push(id);
+    this.db.prepare(`UPDATE custom_companies SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+
+    return this.db.prepare('SELECT * FROM custom_companies WHERE id = ?').get(id);
+  }
+
+  deleteCustomCompany(id: number): void {
+    this.db.prepare('DELETE FROM custom_companies WHERE id = ? AND added_by_user = 1').run(id);
+  }
+
+  // CV operations
+  deactivateAllCVs(userProfileId: number = 1): void {
+    this.db.prepare('UPDATE cv_documents SET is_active = 0 WHERE user_profile_id = ?').run(userProfileId);
+  }
+
+  saveCVDocument(data: {
+    user_profile_id?: number;
+    file_name: string;
+    file_type: string;
+    file_size: number;
+    file_path: string;
+    parsed_content: string;
+    is_active?: boolean;
+  }): any {
+    const userProfileId = data.user_profile_id || 1;
+
+    if (data.is_active !== false) {
+      this.deactivateAllCVs(userProfileId);
+    }
+
+    const result = this.db.prepare(`
+      INSERT INTO cv_documents (
+        user_profile_id, file_name, file_type, file_size, file_path, parsed_content, is_active
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      userProfileId,
+      data.file_name,
+      data.file_type,
+      data.file_size,
+      data.file_path,
+      data.parsed_content,
+      data.is_active !== false ? 1 : 0
+    );
+
+    return this.db.prepare('SELECT * FROM cv_documents WHERE id = ?').get(result.lastInsertRowid);
+  }
+
+  getCVDocuments(userProfileId: number = 1): any[] {
+    return this.db.prepare('SELECT * FROM cv_documents WHERE user_profile_id = ? ORDER BY uploaded_at DESC').all(userProfileId);
+  }
+
+  getActiveCV(userProfileId: number = 1): any {
+    return this.db.prepare('SELECT * FROM cv_documents WHERE user_profile_id = ? AND is_active = 1').get(userProfileId);
+  }
+
+  setActiveCVDocument(cvId: number, userProfileId: number = 1): any {
+    this.deactivateAllCVs(userProfileId);
+    this.db.prepare('UPDATE cv_documents SET is_active = 1 WHERE id = ? AND user_profile_id = ?').run(cvId, userProfileId);
+    return this.db.prepare('SELECT * FROM cv_documents WHERE id = ?').get(cvId);
+  }
+
+  deleteCVDocument(cvId: number): void {
+    this.db.prepare('DELETE FROM cv_documents WHERE id = ?').run(cvId);
+  }
+
+  getCVDocument(cvId: number): any {
+    return this.db.prepare('SELECT * FROM cv_documents WHERE id = ?').get(cvId);
+  }
+
+  updateCVContent(cvId: number, content: string): void {
+    const stmt = this.db.prepare(`
+      UPDATE cv_documents
+      SET parsed_content = ?
+      WHERE id = ?
+    `);
+    stmt.run(content, cvId);
+  }
+
+  // User Profile operations
+  saveUserProfile(data: {
+    linkedin_url?: string;
+    full_name: string;
+    headline?: string;
+    summary?: string;
+    current_position?: string;
+    years_of_experience?: number;
+    skills?: string;
+    experience?: string;
+    education?: string;
+  }): any {
+    // Check if default profile exists (id = 1)
+    const existing = this.db.prepare('SELECT id FROM user_profiles WHERE id = 1').get();
+
+    if (existing) {
+      // Update existing profile
+      const result = this.db.prepare(`
+        UPDATE user_profiles SET
+          linkedin_url = ?,
+          full_name = ?,
+          headline = ?,
+          summary = ?,
+          current_position = ?,
+          years_of_experience = ?,
+          skills = ?,
+          experience = ?,
+          education = ?,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1
+      `).run(
+        data.linkedin_url || null,
+        data.full_name,
+        data.headline || null,
+        data.summary || null,
+        data.current_position || null,
+        data.years_of_experience || 0,
+        data.skills || null,
+        data.experience || null,
+        data.education || null
+      );
+
+      return this.db.prepare('SELECT * FROM user_profiles WHERE id = 1').get();
+    } else {
+      // Create new profile
+      const result = this.db.prepare(`
+        INSERT INTO user_profiles (
+          linkedin_url, full_name, headline, summary, current_position,
+          years_of_experience, skills, experience, education
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        data.linkedin_url || null,
+        data.full_name,
+        data.headline || null,
+        data.summary || null,
+        data.current_position || null,
+        data.years_of_experience || 0,
+        data.skills || null,
+        data.experience || null,
+        data.education || null
+      );
+
+      return this.db.prepare('SELECT * FROM user_profiles WHERE id = ?').get(result.lastInsertRowid);
+    }
+  }
+
+  getUserProfile(profileId: number = 1): any {
+    return this.db.prepare('SELECT * FROM user_profiles WHERE id = ?').get(profileId);
+  }
+
+  updateUserProfile(profileId: number, updates: any): any {
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    const allowedFields = [
+      'linkedin_url', 'full_name', 'headline', 'summary', 'current_position',
+      'years_of_experience', 'skills', 'experience', 'education'
+    ];
+
+    for (const field of allowedFields) {
+      if (updates[field] !== undefined) {
+        fields.push(`${field} = ?`);
+        values.push(updates[field]);
+      }
+    }
+
+    if (fields.length === 0) {
+      throw new Error('No fields to update');
+    }
+
+    fields.push('updated_at = CURRENT_TIMESTAMP');
+    values.push(profileId);
+
+    this.db.prepare(`UPDATE user_profiles SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+
+    return this.db.prepare('SELECT * FROM user_profiles WHERE id = ?').get(profileId);
+  }
+
   close() {
     this.db.close();
   }

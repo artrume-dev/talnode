@@ -1,143 +1,60 @@
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/card';
-import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Building2, MapPin, Calendar, ExternalLink, Target } from 'lucide-react';
+import { ExternalLink, Sparkles } from 'lucide-react';
 import type { Job } from '../types';
-import { stripHtml } from '../lib/utils';
 
 interface JobCardProps {
   job: Job;
-  onAnalyze?: (jobId: string) => void;
-  onApply?: (jobId: string) => void;
-  onArchive?: (jobId: string) => void;
   onOptimizeCV?: (job: Job) => void;
 }
 
-const statusColors = {
-  new: 'bg-blue-500',
-  reviewed: 'bg-yellow-500',
-  applied: 'bg-green-500',
-  rejected: 'bg-red-500',
-  interview: 'bg-purple-500',
-  archived: 'bg-gray-500',
-};
+export function JobCard({ job, onOptimizeCV }: JobCardProps) {
+  // Get job type from location/remote field
+  const jobType = job.remote ? 'Remote' : job.location || 'Unknown';
 
-const priorityColors = {
-  high: 'destructive',
-  medium: 'default',
-  low: 'secondary',
-};
+  // Format match score - handle null/undefined
+  const matchScore = job.alignment_score !== null && job.alignment_score !== undefined
+    ? `${job.alignment_score}%`
+    : 'Not analyzed';
 
-export function JobCard({ job, onAnalyze, onApply, onArchive, onOptimizeCV }: JobCardProps) {
   return (
-    <Card className="hover:shadow-md transition-shadow">
-      <CardHeader>
-        <div className="flex items-start justify-between">
-          <div className="space-y-1 flex-1">
-            <CardTitle className="text-xl">{job.title}</CardTitle>
-            <CardDescription className="flex items-center gap-2">
-              <Building2 className="h-4 w-4" />
-              {job.company}
-            </CardDescription>
+    <div className="border-b border-border last:border-0 py-3 px-4 hover:bg-muted/50 transition-colors">
+      <div className="flex items-center justify-between gap-4">
+        {/* Job Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2 mb-1">
+            <h3 className="font-semibold text-base truncate">{job.title}</h3>
+            <span className="text-sm text-muted-foreground shrink-0">at {job.company}</span>
           </div>
-          <div className="flex flex-col gap-2 items-end">
-            <div className={`w-3 h-3 rounded-full ${statusColors[job.status]}`} title={job.status} />
-            {job.priority && (
-              <Badge variant={priorityColors[job.priority] as any}>
-                {job.priority}
-              </Badge>
-            )}
+          <div className="flex items-center gap-3 text-sm text-muted-foreground">
+            <span>{jobType}</span>
+            <span>•</span>
+            <span className="font-medium">{matchScore}</span>
           </div>
         </div>
-      </CardHeader>
 
-      <CardContent className="space-y-3">
-        {job.location && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <MapPin className="h-4 w-4" />
-            {job.location}
-          </div>
-        )}
-
-        {job.alignment_score !== undefined && (
-          <div className="flex items-center gap-2">
-            <Target className="h-4 w-4 text-primary" />
-            <div className="flex-1">
-              <div className="flex items-center justify-between text-sm mb-1">
-                <span>Match Score</span>
-                <span className="font-semibold">{job.alignment_score}%</span>
-              </div>
-              <div className="h-2 bg-secondary rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-primary transition-all"
-                  style={{ width: `${job.alignment_score}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {job.description && (
-          <p className="text-sm text-muted-foreground line-clamp-3">
-            {stripHtml(job.description)}
-          </p>
-        )}
-
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Calendar className="h-3 w-3" />
-          Found: {new Date(job.found_date).toLocaleDateString()}
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => window.open(job.url, '_blank')}
+            className="gap-1"
+          >
+            <ExternalLink className="h-3 w-3" />
+            View Job
+          </Button>
+          {onOptimizeCV && (
+            <Button
+              size="sm"
+              onClick={() => onOptimizeCV(job)}
+              className="gap-1"
+            >
+              <Sparkles className="h-3 w-3" />
+              Optimize CV
+            </Button>
+          )}
         </div>
-      </CardContent>
-
-      <CardFooter className="flex gap-2 flex-wrap">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => window.open(job.url, '_blank')}
-          className="flex-1 min-w-[100px]"
-        >
-          <ExternalLink className="h-4 w-4" />
-          View Job
-        </Button>
-        {onOptimizeCV && (
-          <Button
-            size="sm"
-            variant="default"
-            onClick={() => onOptimizeCV(job)}
-            className="flex-1 min-w-[120px]"
-          >
-            Optimize CV
-          </Button>
-        )}
-        {onAnalyze && job.status === 'new' && (
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => onAnalyze(job.id)}
-            className="flex-1"
-          >
-            Analyze
-          </Button>
-        )}
-        {onApply && (job.status === 'new' || job.status === 'reviewed') && (
-          <Button
-            size="sm"
-            onClick={() => onApply(job.id)}
-            className="flex-1"
-          >
-            Mark Applied
-          </Button>
-        )}
-        {onArchive && job.status !== 'archived' && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => onArchive(job.id)}
-          >
-            Archive
-          </Button>
-        )}
-      </CardFooter>
-    </Card>
+      </div>
+    </div>
   );
 }

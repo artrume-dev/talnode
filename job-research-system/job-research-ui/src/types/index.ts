@@ -1,17 +1,21 @@
 export interface Job {
   id: string;
+  job_id: string;
   company: string;
   title: string;
   url: string;
   description?: string;
   requirements?: string;
+  tech_stack?: string;
   location?: string;
+  remote?: boolean;
   posted_date?: string;
   found_date: string;
   status: 'new' | 'reviewed' | 'applied' | 'rejected' | 'interview' | 'archived';
   priority?: 'high' | 'medium' | 'low';
   alignment_score?: number;
   notes?: string;
+  last_updated?: string;
 }
 
 export interface JobAnalysis {

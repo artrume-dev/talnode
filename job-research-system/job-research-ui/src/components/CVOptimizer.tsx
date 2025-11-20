@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { FileText, Download, Sparkles, TrendingUp, AlertCircle } from 'lucide-react';
+import { Download, Sparkles, TrendingUp, AlertCircle, Check, X } from 'lucide-react';
 import type { Job } from '../types';
 import { aiService } from '../services/ai';
+import { useUserStore } from '../store/userStore';
 
 interface CVOptimizerProps {
   job: Job;
@@ -20,19 +20,70 @@ interface CVVersion {
 
 export function CVOptimizer({ job, onClose }: CVOptimizerProps) {
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingCV, setIsLoadingCV] = useState(false);
   const [versions, setVersions] = useState<CVVersion[]>([]);
   const [selectedVersion, setSelectedVersion] = useState<'conservative' | 'optimized' | 'stretch'>('optimized');
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [baselineAlignment, setBaselineAlignment] = useState<number>(0);
   const [strongMatches, setStrongMatches] = useState<string[]>([]);
   const [gaps, setGaps] = useState<string[]>([]);
+  const [cvContent, setCVContent] = useState<string>('');
+
+  const { activeCVId, cvDocuments, updateCVContent } = useUserStore();
+
+  // Load CV content when component mounts
+  useState(() => {
+    const loadCVContent = async () => {
+      if (!activeCVId) {
+        setError('No active CV selected. Please upload a CV first.');
+        return;
+      }
+
+      setIsLoadingCV(true);
+      setError(null);
+
+      try {
+        // Try to get CV from local store first
+        const localCV = cvDocuments.find(cv => cv.id === activeCVId);
+        if (localCV?.parsed_content) {
+          setCVContent(localCV.parsed_content);
+          setIsLoadingCV(false);
+          return;
+        }
+
+        // If not in store, fetch from API
+        const response = await fetch(`http://localhost:3001/api/cv/${activeCVId}`);
+        if (!response.ok) {
+          throw new Error('Failed to load CV from server');
+        }
+
+        const data = await response.json();
+        setCVContent(data.parsed_content || '');
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load CV content');
+        console.error('CV loading error:', err);
+      } finally {
+        setIsLoadingCV(false);
+      }
+    };
+
+    loadCVContent();
+  });
 
   const handleOptimize = async () => {
+    if (!cvContent) {
+      setError('No CV content available. Please upload a CV first.');
+      return;
+    }
+
     setIsOptimizing(true);
     setError(null);
+    setSuccess(null);
 
     try {
-      const result = await aiService.optimizeCV(job);
+      const result = await aiService.optimizeCV(job, cvContent);
 
       setVersions(result.versions);
       setBaselineAlignment(result.baseline_alignment);
@@ -43,6 +94,45 @@ export function CVOptimizer({ job, onClose }: CVOptimizerProps) {
       console.error('CV optimization error:', err);
     } finally {
       setIsOptimizing(false);
+    }
+  };
+
+  const handleUpdateCV = async () => {
+    if (!selectedVersionData || !activeCVId) return;
+
+    setIsSaving(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      // Save optimized CV content to the database
+      const response = await fetch('http://localhost:3001/api/cv/update', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cv_id: activeCVId,
+          parsed_content: selectedVersionData.content,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update CV');
+      }
+
+      // Update local store using store action
+      updateCVContent(activeCVId, selectedVersionData.content);
+
+      setSuccess(`CV updated successfully with ${selectedVersionData.type} version!`);
+
+      // Close optimizer after 1.5 seconds to show CV preview
+      setTimeout(() => {
+        onClose();
+      }, 1500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update CV');
+      console.error('CV update error:', err);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -61,186 +151,233 @@ export function CVOptimizer({ job, onClose }: CVOptimizerProps) {
   const selectedVersionData = versions.find(v => v.type === selectedVersion);
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-        <CardHeader className="border-b">
-          <div className="flex items-start justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5" />
-                CV Optimizer
-              </CardTitle>
-              <CardDescription className="mt-1">
-                Optimize your CV for: {job.title} at {job.company}
-              </CardDescription>
-            </div>
-            <Button variant="ghost" onClick={onClose}>✕</Button>
+    <div className="h-full flex flex-col bg-background">
+      {/* Header */}
+      <div className="border-b bg-background p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" />
+              CV Optimizer
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Optimize for: {job.title} at {job.company}
+            </p>
           </div>
-        </CardHeader>
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
 
-        <CardContent className="flex-1 overflow-y-auto p-6 space-y-6">
-          {error && (
-            <div className="bg-destructive/10 border border-destructive rounded-lg p-4 flex items-start gap-2">
-              <AlertCircle className="h-5 w-5 text-destructive mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm text-destructive font-semibold mb-1">Error</p>
-                <p className="text-sm text-destructive/90">{error}</p>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => setError(null)}>✕</Button>
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        {/* Alerts */}
+        {error && (
+          <div className="bg-destructive/10 border border-destructive rounded-lg p-4 flex items-start gap-2">
+            <AlertCircle className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-destructive font-semibold mb-1">Error</p>
+              <p className="text-sm text-destructive/90 break-words">{error}</p>
             </div>
-          )}
+            <Button variant="ghost" size="sm" onClick={() => setError(null)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
 
-          {versions.length === 0 ? (
-            <div className="text-center py-12">
-              <Sparkles className="h-12 w-12 mx-auto mb-4 text-primary opacity-50" />
-              <p className="text-muted-foreground mb-2">
-                Click the button below to generate 3 optimized CV versions tailored for this role
-              </p>
-              <p className="text-xs text-muted-foreground mb-4">
-                Using {import.meta.env.VITE_AI_PROVIDER || 'OpenAI'} API
-              </p>
-              <Button onClick={handleOptimize} disabled={isOptimizing}>
-                {isOptimizing ? (
-                  <>
-                    <Sparkles className="h-4 w-4 animate-spin mr-2" />
-                    Optimizing CV...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="h-4 w-4 mr-2" />
-                    Generate Optimized CVs
-                  </>
-                )}
-              </Button>
-            </div>
-          ) : (
-            <>
-              {/* Version Selector */}
-              <div className="flex gap-2">
-                {versions.map((version) => (
-                  <button
-                    key={version.type}
-                    onClick={() => setSelectedVersion(version.type)}
-                    className={`flex-1 p-4 rounded-lg border-2 transition-all ${
-                      selectedVersion === version.type
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border hover:border-primary/50'
-                    }`}
-                  >
-                    <div className="text-sm font-semibold capitalize mb-1">
-                      {version.type}
-                      {version.type === 'optimized' && (
-                        <Badge variant="default" className="ml-2 text-xs">Recommended</Badge>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <TrendingUp className="h-3 w-3" />
-                      {version.alignment}% match
-                    </div>
-                  </button>
-                ))}
-              </div>
+        {success && (
+          <div className="bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg p-4 flex items-start gap-2">
+            <Check className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5 shrink-0" />
+            <p className="text-sm text-green-800 dark:text-green-200">{success}</p>
+          </div>
+        )}
 
-              {/* Selected Version Details */}
-              {selectedVersionData && (
+        {isLoadingCV ? (
+          <div className="text-center py-12">
+            <Sparkles className="h-12 w-12 mx-auto mb-4 text-primary opacity-50 animate-pulse" />
+            <p className="text-muted-foreground mb-2">Loading your CV...</p>
+          </div>
+        ) : !cvContent ? (
+          <div className="text-center py-12">
+            <AlertCircle className="h-12 w-12 mx-auto mb-4 text-destructive opacity-50" />
+            <p className="text-muted-foreground mb-2">
+              No CV content available
+            </p>
+            <p className="text-xs text-muted-foreground mb-4">
+              Please upload a CV before optimizing
+            </p>
+            <Button variant="outline" onClick={onClose}>
+              Go Back
+            </Button>
+          </div>
+        ) : versions.length === 0 ? (
+          <div className="text-center py-12">
+            <Sparkles className="h-12 w-12 mx-auto mb-4 text-primary opacity-50" />
+            <p className="text-muted-foreground mb-2">
+              Click the button below to generate 3 optimized CV versions tailored for this role
+            </p>
+            <p className="text-xs text-muted-foreground mb-4">
+              Using {import.meta.env.VITE_AI_PROVIDER || 'OpenAI'} API
+            </p>
+            <Button onClick={handleOptimize} disabled={isOptimizing}>
+              {isOptimizing ? (
                 <>
+                  <Sparkles className="h-4 w-4 animate-spin mr-2" />
+                  Optimizing CV...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  Generate Optimized CVs
+                </>
+              )}
+            </Button>
+          </div>
+        ) : (
+          <>
+            {/* Version Selector */}
+            <div className="flex gap-2">
+              {versions.map((version) => (
+                <button
+                  key={version.type}
+                  onClick={() => setSelectedVersion(version.type)}
+                  className={`flex-1 p-4 rounded-lg border-2 transition-all ${
+                    selectedVersion === version.type
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border hover:border-primary/50'
+                  }`}
+                >
+                  <div className="text-sm font-semibold capitalize mb-1">
+                    {version.type}
+                    {version.type === 'optimized' && (
+                      <Badge variant="default" className="ml-2 text-xs">Recommended</Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <TrendingUp className="h-3 w-3" />
+                    {version.alignment}% match
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {/* Selected Version Details */}
+            {selectedVersionData && (
+              <>
+                <div>
+                  <h3 className="font-semibold mb-2">Key Changes:</h3>
+                  <ul className="space-y-1">
+                    {selectedVersionData.changes.map((change, i) => (
+                      <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
+                        <span className="text-primary shrink-0">✓</span>
+                        <span className="break-words">{change}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div>
+                  <h3 className="font-semibold mb-2">Alignment Improvement:</h3>
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between text-sm mb-1">
+                        <span>Baseline</span>
+                        <span className="font-semibold">{baselineAlignment || job.alignment_score || 45}%</span>
+                      </div>
+                      <div className="h-2 bg-secondary rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-muted-foreground"
+                          style={{ width: `${baselineAlignment || job.alignment_score || 45}%` }}
+                        />
+                      </div>
+                    </div>
+                    <span className="text-muted-foreground">→</span>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between text-sm mb-1">
+                        <span className="capitalize">{selectedVersionData.type}</span>
+                        <span className="font-semibold text-primary">{selectedVersionData.alignment}%</span>
+                      </div>
+                      <div className="h-2 bg-secondary rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-primary"
+                          style={{ width: `${selectedVersionData.alignment}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Strong Matches */}
+                {strongMatches.length > 0 && (
                   <div>
-                    <h3 className="font-semibold mb-2">Key Changes:</h3>
+                    <h3 className="font-semibold mb-2">Strong Matches:</h3>
                     <ul className="space-y-1">
-                      {selectedVersionData.changes.map((change, i) => (
+                      {strongMatches.map((match, i) => (
                         <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
-                          <span className="text-primary">✓</span>
-                          {change}
+                          <span className="text-green-600 shrink-0">✓</span>
+                          <span className="break-words">{match}</span>
                         </li>
                       ))}
                     </ul>
                   </div>
+                )}
 
+                {/* Gaps */}
+                {gaps.length > 0 && (
                   <div>
-                    <h3 className="font-semibold mb-2">Alignment Improvement:</h3>
-                    <div className="flex items-center gap-4">
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between text-sm mb-1">
-                          <span>Baseline</span>
-                          <span className="font-semibold">{baselineAlignment || job.alignment_score || 45}%</span>
-                        </div>
-                        <div className="h-2 bg-secondary rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-muted-foreground"
-                            style={{ width: `${baselineAlignment || job.alignment_score || 45}%` }}
-                          />
-                        </div>
-                      </div>
-                      <span className="text-muted-foreground">→</span>
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between text-sm mb-1">
-                          <span className="capitalize">{selectedVersionData.type}</span>
-                          <span className="font-semibold text-primary">{selectedVersionData.alignment}%</span>
-                        </div>
-                        <div className="h-2 bg-secondary rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-primary"
-                            style={{ width: `${selectedVersionData.alignment}%` }}
-                          />
-                        </div>
-                      </div>
-                    </div>
+                    <h3 className="font-semibold mb-2">Gaps to Address:</h3>
+                    <ul className="space-y-1">
+                      {gaps.map((gap, i) => (
+                        <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
+                          <span className="text-yellow-600 shrink-0">⚠</span>
+                          <span className="break-words">{gap}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
+                )}
 
-                  {/* Strong Matches */}
-                  {strongMatches.length > 0 && (
-                    <div>
-                      <h3 className="font-semibold mb-2">Strong Matches:</h3>
-                      <ul className="space-y-1">
-                        {strongMatches.map((match, i) => (
-                          <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
-                            <span className="text-green-600">✓</span>
-                            {match}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* Gaps */}
-                  {gaps.length > 0 && (
-                    <div>
-                      <h3 className="font-semibold mb-2">Gaps to Address:</h3>
-                      <ul className="space-y-1">
-                        {gaps.map((gap, i) => (
-                          <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
-                            <span className="text-yellow-600">⚠</span>
-                            {gap}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  <div>
-                    <h3 className="font-semibold mb-2">Preview:</h3>
-                    <div className="bg-secondary/50 rounded-lg p-4 font-mono text-xs whitespace-pre-wrap max-h-48 overflow-y-auto">
-                      {selectedVersionData.content}
-                    </div>
+                <div>
+                  <h3 className="font-semibold mb-2">Preview:</h3>
+                  <div className="bg-secondary/50 rounded-lg p-4 font-mono text-xs whitespace-pre-wrap max-h-48 overflow-y-auto">
+                    {selectedVersionData.content}
                   </div>
+                </div>
 
-                  <div className="flex gap-2">
-                    <Button onClick={() => handleDownload(selectedVersionData)} className="flex-1">
-                      <Download className="h-4 w-4 mr-2" />
-                      Download {selectedVersionData.type} CV
-                    </Button>
-                    <Button variant="outline" onClick={() => {
-                      versions.forEach(v => handleDownload(v));
-                    }}>
-                      Download All
-                    </Button>
-                  </div>
-                </>
-              )}
-            </>
-          )}
-        </CardContent>
-      </Card>
+                {/* Action Buttons */}
+                <div className="flex gap-2 pt-4 border-t">
+                  <Button
+                    onClick={handleUpdateCV}
+                    className="flex-1"
+                    disabled={isSaving || !activeCVId}
+                  >
+                    {isSaving ? (
+                      <>
+                        <Sparkles className="h-4 w-4 animate-spin mr-2" />
+                        Updating...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="h-4 w-4 mr-2" />
+                        Update CV
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    onClick={() => handleDownload(selectedVersionData)}
+                    variant="outline"
+                    className="flex-1"
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Download
+                  </Button>
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

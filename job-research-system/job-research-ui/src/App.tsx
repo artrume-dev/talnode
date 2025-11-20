@@ -1,306 +1,197 @@
-import { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
+import { useEffect } from 'react';
+import { useUserStore } from './store/userStore';
+import { useJobStore } from './store/jobStore';
+import { useUIStore } from './store/uiStore';
+import { SplitPanelLayout } from './components/SplitPanelLayout';
+import { JobsList } from './components/JobsList';
+import { CVPreview } from './components/CVPreview';
+import { CVOptimizer } from './components/CVOptimizer';
+import { CompanySelector } from './components/CompanySelector';
+import { AddCompanyModal } from './components/AddCompanyModal';
+import { CVUploader } from './components/CVUploader';
+import { LinkedInImport } from './components/LinkedInImport';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
-import { JobCard } from './components/JobCard';
-import { CVOptimizer } from './components/CVOptimizer';
-import { PromptInput } from './components/PromptInput';
-import { mcpClient } from './api/mcp-client';
-import type { Job, ApplicationStats } from './types';
-import { Briefcase, TrendingUp, Search, Loader2, AlertCircle } from 'lucide-react';
+import { Briefcase, Upload, User, Settings } from 'lucide-react';
 
 function App() {
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [stats, setStats] = useState<ApplicationStats | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<string>('all');
-  const [selectedJobForCV, setSelectedJobForCV] = useState<Job | null>(null);
+  const { isOnboarded, profile, activeCVId } = useUserStore();
+  const { jobs, setJobs, selectedCompanies, selectedJob } = useJobStore();
+  const {
+    isCompanySelectorOpen,
+    openCompanySelector,
+    isCVUploaderOpen,
+    openCVUploader,
+    isLinkedInImportOpen,
+    openLinkedInImport,
+    rightPanelView,
+    setRightPanelView,
+  } = useUIStore();
 
   // Load initial data
   useEffect(() => {
     loadJobs();
-    loadStats();
-  }, []);
+  }, [selectedCompanies]);
 
   const loadJobs = async () => {
-    setIsLoading(true);
-    setError(null);
     try {
-      const data = await mcpClient.getJobs();
-      setJobs(data);
-    } catch (err) {
-      setError('Failed to load jobs. Make sure the API server is running.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+      // Fetch jobs from API
+      const response = await fetch('http://localhost:3001/api/tools/get_jobs', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      });
 
-  const loadStats = async () => {
-    try {
-      const data = await mcpClient.getStats();
-      setStats(data);
-    } catch (err) {
-      console.error('Failed to load stats:', err);
-    }
-  };
-
-  const handlePromptSubmit = async (prompt: string) => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      // Parse simple commands from the prompt
-      const lowerPrompt = prompt.toLowerCase();
-
-      if (lowerPrompt.includes('find') || lowerPrompt.includes('search') || lowerPrompt.includes('new jobs')) {
-        // Search for new jobs
-        const companyMatch = lowerPrompt.match(/at (\w+)/);
-        const companies = companyMatch ? [companyMatch[1]] : undefined;
-
-        // First, search for any new jobs (this scrapes the career pages)
-        const newJobs = await mcpClient.searchJobs(companies);
-
-        // Then, get all existing jobs for that company/filter
-        const allJobs = await mcpClient.getJobs();
-
-        // Filter by company if specified
-        let displayJobs = allJobs;
-        if (companies && companies.length > 0) {
-          const companyName = companies[0].toLowerCase();
-          displayJobs = allJobs.filter(job =>
-            job.company.toLowerCase().includes(companyName)
-          );
-        }
-
-        // Show message about new jobs found
-        if (newJobs.length > 0) {
-          setError(`✓ Found ${newJobs.length} new jobs! Showing all ${displayJobs.length} jobs.`);
-        } else if (displayJobs.length > 0) {
-          setError(`No new jobs found, but showing ${displayJobs.length} existing jobs. All jobs are already in your database.`);
-        } else {
-          setError(`No jobs found${companies ? ` at ${companies[0]}` : ''}. Try searching for a different company.`);
-        }
-
-        setJobs(displayJobs);
-      } else if (lowerPrompt.includes('high priority') || lowerPrompt.includes('high-priority')) {
-        const filtered = await mcpClient.getJobs({ priority: 'high' });
-        setJobs(filtered);
-      } else if (lowerPrompt.includes('need attention') || lowerPrompt.includes('attention')) {
-        const attention = await mcpClient.getJobsNeedingAttention();
-        setJobs(attention.new_jobs || []);
-      } else if (lowerPrompt.includes('applied')) {
-        const applied = await mcpClient.getJobs({ status: 'applied' });
-        setJobs(applied);
-      } else {
-        // Default: reload all jobs
-        await loadJobs();
+      if (response.ok) {
+        const data = await response.json();
+        setJobs(data || []);
       }
-
-      await loadStats();
     } catch (err) {
-      setError('Failed to process request. Please try again.');
-    } finally {
-      setIsLoading(false);
+      console.error('Failed to load jobs:', err);
     }
   };
 
-  const handleAnalyze = async (jobId: string) => {
-    setIsLoading(true);
-    try {
-      await mcpClient.analyzeJob(jobId);
-      await loadJobs();
-      await loadStats();
-    } catch (err) {
-      setError('Failed to analyze job');
-    } finally {
-      setIsLoading(false);
+  // Check onboarding status and show modals
+  useEffect(() => {
+    if (!isOnboarded && !profile) {
+      // Show LinkedIn import on first load
+      openLinkedInImport();
+    }
+  }, [isOnboarded, profile]);
+
+  const hasUploadedCV = activeCVId !== null;
+  const hasSelectedCompanies = selectedCompanies.length > 0;
+
+  // Render right panel based on current view
+  const renderRightPanel = () => {
+    console.log('📱 Rendering right panel, view:', rightPanelView);
+    switch (rightPanelView) {
+      case 'optimizer':
+        const job = selectedJob();
+        console.log('🔍 Selected job for optimizer:', job?.title || 'No job selected');
+        if (!job) {
+          console.log('⚠️ No job selected, showing CV preview instead');
+          return <CVPreview />;
+        }
+        console.log('✅ Rendering CVOptimizer for job:', job.title);
+        return (
+          <CVOptimizer
+            job={job}
+            onClose={() => setRightPanelView('preview')}
+          />
+        );
+      case 'preview':
+      default:
+        console.log('📄 Showing CV preview');
+        return <CVPreview />;
     }
   };
-
-  const handleMarkApplied = async (jobId: string) => {
-    try {
-      await mcpClient.markApplied(jobId, 'Applied via UI');
-      await loadJobs();
-      await loadStats();
-    } catch (err) {
-      setError('Failed to mark job as applied');
-    }
-  };
-
-  const handleArchive = async (jobId: string) => {
-    try {
-      await mcpClient.archiveJob(jobId, 'Archived via UI');
-      await loadJobs();
-      await loadStats();
-    } catch (err) {
-      setError('Failed to archive job');
-    }
-  };
-
-  const filteredJobs = jobs.filter((job) => {
-    if (activeFilter === 'all') return true;
-    return job.status === activeFilter;
-  });
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="h-screen flex flex-col bg-background">
       {/* Header */}
-      <header className="border-b bg-card">
-        <div className="container mx-auto px-4 py-6">
+      <header className="border-b bg-card shrink-0">
+        <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold flex items-center gap-2">
-                <Briefcase className="h-8 w-8 text-primary" />
-                AI Job Research System
-              </h1>
-              <p className="text-muted-foreground mt-1">
-                Find, analyze, and track your perfect AI role
-              </p>
+            <div className="flex items-center gap-4">
+              <div>
+                <h1 className="text-2xl font-bold flex items-center gap-2">
+                  <Briefcase className="h-6 w-6 text-primary" />
+                  AI Job Research System
+                </h1>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Find, analyze, and optimize your perfect AI role
+                </p>
+              </div>
             </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={openLinkedInImport}
+              >
+                <User className="h-4 w-4" />
+                {profile ? 'Edit Profile' : 'Add Profile'}
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={openCVUploader}
+              >
+                <Upload className="h-4 w-4" />
+                {hasUploadedCV ? 'Upload New CV' : 'Upload CV'}
+              </Button>
+
+              <Button
+                variant="default"
+                size="sm"
+                className="gap-2"
+                onClick={openCompanySelector}
+              >
+                <Settings className="h-4 w-4" />
+                Select Companies ({selectedCompanies.length})
+              </Button>
+            </div>
+          </div>
+
+          {/* Status Indicators */}
+          <div className="flex items-center gap-2 mt-4">
+            <Badge variant={profile ? 'default' : 'outline'}>
+              {profile ? `Profile: ${profile.full_name}` : 'No Profile'}
+            </Badge>
+            <Badge variant={hasUploadedCV ? 'default' : 'outline'}>
+              {hasUploadedCV ? 'CV Uploaded' : 'No CV'}
+            </Badge>
+            <Badge variant={hasSelectedCompanies ? 'default' : 'outline'}>
+              {hasSelectedCompanies
+                ? `${selectedCompanies.length} Companies Selected`
+                : 'No Companies'}
+            </Badge>
+            <Badge variant="outline" className="ml-auto">
+              {jobs.length} Jobs Found
+            </Badge>
           </div>
         </div>
       </header>
 
-      <div className="container mx-auto px-4 py-8">
-        {/* Stats Cards */}
-        {stats && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardDescription>Total Jobs</CardDescription>
-                <CardTitle className="text-3xl">{stats.total}</CardTitle>
-              </CardHeader>
-            </Card>
-            <Card>
-              <CardHeader className="pb-3">
-                <CardDescription>Applied</CardDescription>
-                <CardTitle className="text-3xl text-green-600">
-                  {stats.by_status?.applied || 0}
-                </CardTitle>
-              </CardHeader>
-            </Card>
-            <Card>
-              <CardHeader className="pb-3">
-                <CardDescription>High Priority</CardDescription>
-                <CardTitle className="text-3xl text-orange-600">
-                  {stats.high_priority}
-                </CardTitle>
-              </CardHeader>
-            </Card>
-            <Card>
-              <CardHeader className="pb-3">
-                <CardDescription>Avg Alignment</CardDescription>
-                <CardTitle className="text-3xl flex items-center gap-1">
-                  {stats.avg_alignment ? `${stats.avg_alignment.toFixed(0)}%` : 'N/A'}
-                  <TrendingUp className="h-5 w-5 text-primary" />
-                </CardTitle>
-              </CardHeader>
-            </Card>
-          </div>
-        )}
-
-        {/* Prompt Input */}
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Search className="h-5 w-5" />
-              Search & Command
-            </CardTitle>
-            <CardDescription>
-              Use natural language to search jobs, analyze roles, or invoke AI agents
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <PromptInput onSubmit={handlePromptSubmit} isLoading={isLoading} />
-          </CardContent>
-        </Card>
-
-        {/* Status/Error Display */}
-        {error && (
-          <Card className={`mb-6 ${error.startsWith('✓') ? 'border-green-500' : error.startsWith('No new jobs') ? 'border-yellow-500' : 'border-destructive'}`}>
-            <CardContent className="pt-6">
-              <div className={`flex items-center gap-2 ${error.startsWith('✓') ? 'text-green-600' : error.startsWith('No new jobs') ? 'text-yellow-600' : 'text-destructive'}`}>
-                <AlertCircle className="h-5 w-5" />
-                <p>{error}</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setError(null)}
-                  className="ml-auto"
-                >
-                  Dismiss
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Filters */}
-        <div className="flex gap-2 mb-6 flex-wrap">
-          {['all', 'new', 'reviewed', 'applied', 'interview'].map((filter) => (
-            <Button
-              key={filter}
-              variant={activeFilter === filter ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setActiveFilter(filter)}
-            >
-              {filter.charAt(0).toUpperCase() + filter.slice(1)}
-            </Button>
-          ))}
-        </div>
-
-        {/* Jobs Grid */}
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          </div>
-        ) : filteredJobs.length === 0 ? (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <Briefcase className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-              <p className="text-muted-foreground">
-                No jobs found. Try searching for new opportunities!
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredJobs.map((job) => (
-              <JobCard
-                key={job.id}
-                job={job}
-                onAnalyze={handleAnalyze}
-                onApply={handleMarkApplied}
-                onArchive={handleArchive}
-                onOptimizeCV={setSelectedJobForCV}
-              />
-            ))}
-          </div>
-        )}
+      {/* Main Content - Split Panel Layout */}
+      <div className="flex-1 overflow-hidden">
+        <SplitPanelLayout
+          leftPanel={<JobsList onCompanySelectorOpen={openCompanySelector} />}
+          rightPanel={renderRightPanel()}
+          defaultLeftSize={50}
+          minLeftSize={30}
+          minRightSize={30}
+        />
       </div>
 
       {/* Footer */}
-      <footer className="border-t mt-12 py-6 bg-card">
-        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          <p>
-            Powered by MCP Server • Built with React + Tailwind + shadcn/ui
-          </p>
-          <p className="mt-1">
+      <footer className="border-t py-3 bg-card shrink-0">
+        <div className="container mx-auto px-4 text-center text-xs text-muted-foreground">
+          <div className="flex items-center justify-center gap-4">
+            <span>Powered by MCP Server</span>
+            <span>•</span>
+            <span>Built with React + Tailwind + shadcn/ui</span>
+            <span>•</span>
             <Badge variant="outline" className="text-xs">
               API: http://localhost:3001
             </Badge>
-          </p>
+          </div>
         </div>
       </footer>
 
-      {/* CV Optimizer Modal */}
-      {selectedJobForCV && (
-        <CVOptimizer
-          job={selectedJobForCV}
-          onClose={() => setSelectedJobForCV(null)}
-        />
-      )}
+      {/* Modals */}
+      {isCompanySelectorOpen && <CompanySelector />}
+      <AddCompanyModal onCompanyAdded={loadJobs} />
+      {isCVUploaderOpen && <CVUploader />}
+      {isLinkedInImportOpen && <LinkedInImport />}
     </div>
   );
 }
