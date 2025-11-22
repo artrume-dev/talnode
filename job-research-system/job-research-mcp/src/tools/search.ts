@@ -17,8 +17,8 @@ export async function searchNewJobs(
 ): Promise<Job[]> {
   // Scrape jobs based on company filter
   const scrapedJobs = companies && companies.length > 0
-    ? await scrapeCompanies(companies)
-    : await scrapeAllCompanies();
+    ? await scrapeCompanies(companies, db)
+    : await scrapeAllCompanies(db);
 
   const newJobs: Job[] = [];
 
@@ -39,6 +39,8 @@ export async function searchNewJobs(
         location: job.location,
         remote: job.remote,
         alignment_score: null,
+        strong_matches: null,
+        gaps: null,
         status: 'new',
         priority: 'medium',
         notes: null,
@@ -58,11 +60,31 @@ export async function searchNewJobs(
  * Get jobs from database with filters
  */
 export function getJobs(db: JobDatabase, filters?: SearchFilters): Job[] {
-  return db.getJobs({
+  // If company_ids are provided, convert them to company names
+  let companyNames: string[] | undefined;
+  if (filters && 'company_ids' in filters && Array.isArray((filters as any).company_ids)) {
+    const companyIds = (filters as any).company_ids;
+    const allCompanies = db.getAllCompanies();
+    companyNames = allCompanies
+      .filter((c: any) => companyIds.includes(c.id))
+      .map((c: any) => c.company_name);
+  } else if (filters?.companies) {
+    companyNames = filters.companies;
+  }
+
+  // Get all jobs first
+  let jobs = db.getJobs({
     status: filters?.status,
     priority: filters?.priority,
     minAlignment: filters?.minAlignment,
   });
+
+  // Filter by company names if provided
+  if (companyNames && companyNames.length > 0) {
+    jobs = jobs.filter(job => companyNames!.includes(job.company));
+  }
+
+  return jobs;
 }
 
 /**

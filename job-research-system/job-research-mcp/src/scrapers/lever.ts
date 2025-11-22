@@ -28,11 +28,7 @@ export class LeverScraper extends BaseScraper {
       const scrapedJobs: ScrapedJob[] = [];
 
       for (const job of jobs) {
-        // Filter for relevant roles
-        if (!this.isRelevantRole(job.text)) {
-          continue;
-        }
-
+        // Scrape all jobs - let user preferences and CV alignment do the filtering
         const description = this.combineJobText(job);
         
         scrapedJobs.push({
@@ -53,27 +49,6 @@ export class LeverScraper extends BaseScraper {
       console.error(`Error scraping ${this.company}:`, error);
       return [];
     }
-  }
-
-  private isRelevantRole(title: string): boolean {
-    const relevantKeywords = [
-      'design system',
-      'developer experience',
-      'design ops',
-      'design engineer',
-      'product designer',
-      'staff designer',
-      'senior designer',
-      'principal designer',
-      'ai',
-      'platform',
-      'tooling',
-      'infrastructure',
-      'technical program',
-    ];
-
-    const titleLower = title.toLowerCase();
-    return relevantKeywords.some(keyword => titleLower.includes(keyword));
   }
 
   private combineJobText(job: any): string {

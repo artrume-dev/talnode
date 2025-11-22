@@ -73,6 +73,71 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Company Management API
+    if (path === '/api/companies' && req.method === 'GET') {
+      const companies = db.getAllCompanies();
+      sendJSON(res, 200, { companies });
+      return;
+    }
+
+    if (path === '/api/companies' && req.method === 'POST') {
+      const body = await parseBody(req);
+      const { company_name, careers_url, ats_type, greenhouse_id, lever_id } = body;
+
+      if (!company_name || !careers_url || !ats_type) {
+        sendJSON(res, 400, { error: 'Missing required fields: company_name, careers_url, ats_type' });
+        return;
+      }
+
+      try {
+        const newCompany = db.addCustomCompany({
+          company_name,
+          careers_url,
+          ats_type,
+          greenhouse_id,
+          lever_id,
+        });
+        sendJSON(res, 201, { company: newCompany, message: 'Company added successfully' });
+      } catch (error: any) {
+        if (error.message?.includes('UNIQUE constraint failed')) {
+          sendJSON(res, 409, { error: 'Company already exists' });
+        } else {
+          throw error;
+        }
+      }
+      return;
+    }
+
+    if (path.match(/^\/api\/companies\/\d+$/) && req.method === 'PUT') {
+      const companyId = parseInt(path.split('/').pop() || '0');
+      const body = await parseBody(req);
+      const { is_active, company_name, careers_url, ats_type } = body;
+
+      try {
+        const updated = db.updateCustomCompany(companyId, {
+          is_active,
+          company_name,
+          careers_url,
+          ats_type,
+        });
+        sendJSON(res, 200, { company: updated, message: 'Company updated successfully' });
+      } catch (error: any) {
+        if (error.message === 'No fields to update') {
+          sendJSON(res, 400, { error: error.message });
+        } else {
+          throw error;
+        }
+      }
+      return;
+    }
+
+    if (path.match(/^\/api\/companies\/\d+$/) && req.method === 'DELETE') {
+      const companyId = parseInt(path.split('/').pop() || '0');
+      db.deleteCustomCompany(companyId);
+      sendJSON(res, 200, { message: 'Company deleted successfully' });
+      return;
+    }
+
     // API routes
     if (path.startsWith('/api/tools/')) {
       const toolName = path.replace('/api/tools/', '');

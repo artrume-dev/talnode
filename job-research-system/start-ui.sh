@@ -23,7 +23,7 @@ fi
 
 # Start HTTP API server in background
 echo "🌐 Starting HTTP API server on port 3001..."
-npm run start:http &
+npm run start:express &
 API_PID=$!
 echo "   PID: $API_PID"
 

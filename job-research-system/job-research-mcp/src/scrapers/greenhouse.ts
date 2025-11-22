@@ -29,11 +29,7 @@ export class GreenhouseScraper extends BaseScraper {
       const scrapedJobs: ScrapedJob[] = [];
 
       for (const job of jobs) {
-        // Filter for relevant roles (design systems, developer experience, AI, product)
-        if (!this.isRelevantRole(job.title)) {
-          continue;
-        }
-
+        // Scrape all jobs - let user preferences and CV alignment do the filtering
         const description = this.stripHtml(job.content || '');
         
         scrapedJobs.push({
@@ -54,27 +50,6 @@ export class GreenhouseScraper extends BaseScraper {
       console.error(`Error scraping ${this.company}:`, error);
       return [];
     }
-  }
-
-  private isRelevantRole(title: string): boolean {
-    const relevantKeywords = [
-      'design system',
-      'developer experience',
-      'design ops',
-      'design engineer',
-      'product designer',
-      'staff designer',
-      'senior designer',
-      'principal designer',
-      'ai',
-      'platform',
-      'tooling',
-      'infrastructure',
-      'technical program',
-    ];
-
-    const titleLower = title.toLowerCase();
-    return relevantKeywords.some(keyword => titleLower.includes(keyword));
   }
 
   private stripHtml(html: string): string {

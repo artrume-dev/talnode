@@ -73,7 +73,7 @@ This starts both:
 For each version, you'll see:
 - List of 3-5 specific optimizations made
 - What was reordered, reframed, or emphasized
-- Full markdown preview of the CV
+- Full markdown preview of the CV      
 
 ### Download Options
 - Download individual version

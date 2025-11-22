@@ -1,0 +1,390 @@
+import { useState } from 'react';
+import { useJobStore } from '../store/jobStore';
+import { useUIStore } from '../store/uiStore';
+import { useUserStore } from '../store/userStore';
+import { JobCard } from './JobCard';
+import { JobPagination } from './JobPagination';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Badge } from './ui/badge';
+import { Briefcase, X, Search, AlertCircle, Filter as FilterIcon, RefreshCw } from 'lucide-react';
+import type { Job } from '../types';
+
+interface JobsListProps {
+  onCompanySelectorOpen?: () => void;
+}
+
+export function JobsList({ onCompanySelectorOpen }: JobsListProps) {
+  const {
+    paginatedJobs,
+    selectedCompanies,
+    filteredJobs,
+    setSelectedJobId,
+    jobs: allJobs,
+    clearFilters,
+    setSearchQuery,
+    deselectAllCompanies,
+    setUsePreferences,
+    usePreferences,
+    searchQuery,
+    selectedJobId,
+    loadJobs
+  } = useJobStore();
+  const { setRightPanelView, openEditProfile, showAlert } = useUIStore();
+  const { profile, activeCVId, updateProfile } = useUserStore();
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  const jobs = paginatedJobs();
+  const allFilteredJobs = filteredJobs();
+  
+  // Calculate filtering breakdown
+  const userProfile = typeof window !== 'undefined' 
+    ? JSON.parse(localStorage.getItem('user-storage') || '{}')?.state?.profile 
+    : null;
+  
+  const activeFilters: Array<{label: string; type: string}> = [];
+  
+  // Only show preference filters if usePreferences is true
+  if (usePreferences && userProfile) {
+    if (userProfile?.preferred_locations) {
+      try {
+        const locs = JSON.parse(userProfile.preferred_locations);
+        if (locs.length > 0) activeFilters.push({label: locs.join(', '), type: 'location'});
+      } catch (e) {}
+    }
+    if (userProfile?.preferred_industries) {
+      try {
+        const inds = JSON.parse(userProfile.preferred_industries);
+        if (inds.length > 0) activeFilters.push({label: inds.join(', '), type: 'industries'});
+      } catch (e) {}
+    }
+    if (userProfile?.preferred_job_types) {
+      try {
+        const types = JSON.parse(userProfile.preferred_job_types);
+        if (types.length > 0) activeFilters.push({label: types.join(', '), type: 'types'});
+      } catch (e) {}
+    }
+  }
+  
+  if (selectedCompanies.length > 0) {
+    activeFilters.push({label: `${selectedCompanies.length} selected`, type: 'companies'});
+  }
+  if (searchQuery) {
+    activeFilters.push({label: `"${searchQuery}"`, type: 'search'});
+  }
+  
+  console.log('🏷️ Active filters:', activeFilters);
+  
+  const hasActiveFilters = activeFilters.length > 0 || selectedCompanies.length > 0 || !usePreferences;
+  const hasPreferences = profile?.preferred_locations || profile?.preferred_industries || profile?.preferred_job_types;
+
+  const handleClearAllFilters = () => {
+    clearFilters();
+    setSearchQuery('');
+    deselectAllCompanies();
+    setUsePreferences(false); // Disable preference-based filtering
+  };
+
+  const handleRemoveFilter = (filterType: string) => {
+    console.log('🗑️ Removing filter:', filterType);
+    if (filterType === 'search') {
+      setSearchQuery('');
+    } else if (filterType === 'companies') {
+      deselectAllCompanies();
+    } else if (filterType === 'location') {
+      // Clear location preference
+      updateProfile({ preferred_locations: '[]' });
+      // If all preferences are now empty, disable preference filtering
+      checkAndDisablePreferences('location');
+    } else if (filterType === 'industries') {
+      // Clear industries preference
+      updateProfile({ preferred_industries: '[]' });
+      checkAndDisablePreferences('industries');
+    } else if (filterType === 'types') {
+      // Clear job types preference
+      updateProfile({ preferred_job_types: '[]' });
+      checkAndDisablePreferences('types');
+    }
+  };
+
+  const checkAndDisablePreferences = (clearedType: string) => {
+    // Check if all other preference types are also empty
+    const userProfile = typeof window !== 'undefined' 
+      ? JSON.parse(localStorage.getItem('user-storage') || '{}')?.state?.profile 
+      : null;
+    
+    if (!userProfile) return;
+
+    const hasLocation = clearedType !== 'location' && userProfile.preferred_locations && 
+                        JSON.parse(userProfile.preferred_locations || '[]').length > 0;
+    const hasIndustries = clearedType !== 'industries' && userProfile.preferred_industries && 
+                          JSON.parse(userProfile.preferred_industries || '[]').length > 0;
+    const hasTypes = clearedType !== 'types' && userProfile.preferred_job_types && 
+                     JSON.parse(userProfile.preferred_job_types || '[]').length > 0;
+
+    // If no preferences remain, disable preference filtering
+    if (!hasLocation && !hasIndustries && !hasTypes) {
+      setUsePreferences(false);
+    }
+  };
+
+  const handleShowAllJobs = () => {
+    setUsePreferences(false);
+    clearFilters();
+    setSearchQuery('');
+    deselectAllCompanies();
+  };
+  
+  // Debug logging
+  console.log('📊 Jobs Stats:', {
+    total: allJobs.length,
+    filtered: allFilteredJobs.length,
+    paginated: jobs.length,
+    selectedCompanies: selectedCompanies.length
+  });
+
+  const handleAnalyzeAllJobs = async () => {
+    if (!activeCVId) {
+      showAlert({
+        title: 'No CV Available',
+        description: 'Please upload a CV first to analyze jobs',
+        confirmText: 'OK',
+        variant: 'default',
+      });
+      return;
+    }
+
+    setIsAnalyzing(true);
+    try {
+      const response = await fetch('http://localhost:3001/api/jobs/analyze-all', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          cv_id: activeCVId,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`✅ Analyzed ${data.analyzed_count} jobs`);
+        if (data.failed_count > 0) {
+          console.warn(`⚠️ Failed to analyze ${data.failed_count} jobs`);
+        }
+
+        // Reload jobs to get updated scores from database
+        await loadJobs();
+        showAlert({
+          title: 'Analysis Complete',
+          description: `Successfully analyzed ${data.analyzed_count} jobs!`,
+          confirmText: 'OK',
+          variant: 'success',
+        });
+      } else {
+        throw new Error('Failed to analyze jobs');
+      }
+    } catch (error) {
+      console.error('Job analysis failed:', error);
+      showAlert({
+        title: 'Analysis Failed',
+        description: 'Failed to analyze jobs. Please try again.',
+        confirmText: 'OK',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleSelectJob = (job: Job) => {
+    console.log('🎯 Job selected:', job.title, 'ID:', job.id);
+    // Set the selected job in the store but keep showing CV preview
+    setSelectedJobId(job.id);
+    console.log('✅ Selected job ID set');
+  };
+
+  const handleOptimizeCV = (job: Job) => {
+    console.log('🎯 Optimize CV clicked for:', job.title, 'ID:', job.id);
+    // Set the selected job in the store
+    setSelectedJobId(job.id);
+    console.log('✅ Selected job ID set');
+    // Switch right panel to optimizer view
+    setRightPanelView('optimizer');
+    console.log('✅ Right panel view set to optimizer');
+  };
+
+  return (
+    <div className="h-full flex flex-col bg-white">
+      {/* Ribbon Alert for Filtered Jobs */}
+      {hasActiveFilters && allFilteredJobs.length > 0 && allFilteredJobs.length < allJobs.length && (
+        <div className="bg-white border-b border-gray-200 px-5 py-2 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm text-gray-800">
+            <div className="flex items-center gap-1.5 bg-green-100 px-2 py-0.5 rounded-md">
+              <div className="h-2 w-2 rounded-full bg-green-500"></div>
+              <span className="font-medium text-xs text-green-700">AI Analysis Ready</span>
+            </div>
+            <span>
+              {allFilteredJobs.length} of {allJobs.length} jobs matched.
+            </span>
+            <button
+              onClick={openEditProfile}
+              className="text-blue-600 underline hover:text-blue-800 font-medium"
+            >
+              Update preferences
+            </button>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs text-gray-700 hover:text-gray-900 h-6"
+            onClick={handleShowAllJobs}
+          >
+            Show All Jobs
+          </Button>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="border-b border-gray-200 bg-white p-5">
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold text-gray-900">Opportunities</h2>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleAnalyzeAllJobs}
+                disabled={isAnalyzing || !activeCVId}
+                className="gap-1.5 text-xs h-7"
+              >
+                <RefreshCw className={`h-3 w-3 ${isAnalyzing ? 'animate-spin' : ''}`} />
+                {isAnalyzing ? 'Analyzing...' : 'Analyze All Jobs'}
+              </Button>
+              <span className="text-sm font-medium text-gray-600 bg-gray-100 px-2.5 py-1 rounded-md">
+                {allFilteredJobs.length} found
+              </span>
+            </div>
+          </div>
+
+          {/* Filter Input */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input
+              type="text"
+              placeholder="Filter by role or company..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 h-9 border-gray-300 bg-white"
+            />
+          </div>
+
+          {/* Active Filter Tags */}
+          {activeFilters.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-gray-500">Filters</span>
+                <button
+                  type="button"
+                  className="h-6 px-2 text-xs hover:bg-gray-100 rounded transition-colors"
+                  onClick={() => {
+                    console.log('🗑️ Clear all clicked');
+                    handleClearAllFilters();
+                  }}
+                >
+                  Clear all
+                </button>
+              </div>
+              {activeFilters.map((filter, idx) => {
+                console.log('🎨 Rendering filter tag:', filter);
+                return (
+                  <button
+                    key={`${filter.type}-${idx}`}
+                    type="button"
+                    onClick={() => {
+                      console.log('🗑️ Removing filter:', filter.type);
+                      handleRemoveFilter(filter.type);
+                    }}
+                    onMouseDown={(e) => {
+                      console.log('🖱️ Mouse down on filter:', filter.type);
+                    }}
+                    className="flex items-center gap-1.5 bg-blue-100 text-blue-700 px-2.5 py-1 rounded-md text-xs hover:bg-blue-200 transition-colors cursor-pointer border border-blue-300"
+                  >
+                    <span>{filter.label}</span>
+                    <X className="h-3 w-3" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Jobs List */}
+      <div className="flex-1 overflow-y-auto">
+        {/* Empty State - No Jobs Found */}
+        {allFilteredJobs.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+            <div className="mb-4 h-16 w-16 rounded-full bg-amber-100 flex items-center justify-center">
+              <AlertCircle className="h-8 w-8 text-amber-600" />
+            </div>
+            <h3 className="font-semibold mb-2 text-lg">No Matching Jobs Found</h3>
+
+            {hasActiveFilters && allJobs.length > 0 ? (
+              <>
+                <p className="text-sm text-gray-600 mb-4 max-w-md">
+                  No jobs match your current filters and preferences. {allJobs.length} total jobs available.
+                </p>
+                <div className="flex gap-2">
+                  <Button onClick={handleShowAllJobs} className="gap-2">
+                    <FilterIcon className="h-4 w-4" />
+                    Show All {allJobs.length} Jobs
+                  </Button>
+                  {hasPreferences && (
+                    <Button variant="outline" onClick={openEditProfile} className="gap-2">
+                      <FilterIcon className="h-4 w-4" />
+                      Update Preferences
+                    </Button>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-gray-600 mb-4 max-w-md">
+                  No jobs found. Try selecting companies or adjusting your preferences.
+                </p>
+                <div className="flex gap-2">
+                  <Button onClick={onCompanySelectorOpen} className="gap-2">
+                    <FilterIcon className="h-4 w-4" />
+                    Select Companies
+                  </Button>
+                  <Button variant="outline" onClick={openEditProfile}>
+                    Update Preferences
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Jobs List */}
+        {allFilteredJobs.length > 0 && (
+          <div className="divide-y divide-border">
+            {jobs.map((job) => (
+              <JobCard
+                key={job.job_id}
+                job={job}
+                isSelected={selectedJobId === job.id}
+                onSelect={handleSelectJob}
+                onOptimizeCV={handleOptimizeCV}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Pagination */}
+      {allFilteredJobs.length > 0 && <JobPagination />}
+    </div>
+  );
+}
