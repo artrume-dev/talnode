@@ -13,6 +13,8 @@ import { Register } from './pages/Register';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { CVUploader } from './components/CVUploader';
 import { useUserStore } from './store/userStore';
+import { Dashboard } from './pages/Dashboard';
+import { DashboardOverview } from './pages/DashboardOverview';
 
 function OnboardingPage() {
   const { setOnboarded } = useUserStore();
@@ -49,8 +51,27 @@ function App() {
               </ProtectedRoute>
             }
           />
+
+          {/* Dashboard Routes */}
           <Route
-            path="/"
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<DashboardOverview />} />
+            {/* Placeholder routes - will be implemented later */}
+            <Route path="cvs" element={<div className="p-6">CVs Page - Coming Soon</div>} />
+            <Route path="optimizations" element={<div className="p-6">Optimizations Page - Coming Soon</div>} />
+            <Route path="applications" element={<div className="p-6">Applications Page - Coming Soon</div>} />
+            <Route path="analytics" element={<div className="p-6">Analytics Page - Coming Soon</div>} />
+          </Route>
+
+          {/* Job Search (MainApp) */}
+          <Route
+            path="/jobs"
             element={
               <ProtectedRoute>
                 <MainApp />
@@ -58,8 +79,9 @@ function App() {
             }
           />
 
-          {/* Redirect all other routes to home */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          {/* Default redirect to dashboard */}
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>
