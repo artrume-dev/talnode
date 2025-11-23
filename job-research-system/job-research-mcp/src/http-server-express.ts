@@ -28,6 +28,7 @@ import {
   getJobsNeedingAttention,
 } from './tools/index.js';
 import { parseCV } from './tools/cv-upload.js';
+import authRoutes from './routes/auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -80,6 +81,9 @@ const upload = multer({
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'job-research-api' });
 });
+
+// Mount authentication routes
+app.use('/api/auth', authRoutes);
 
 // Company Management API
 app.get('/api/companies', (_req, res) => {

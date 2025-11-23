@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Building2, MapPin, ExternalLink, Sparkles, Info } from 'lucide-react';
+import { Building2, MapPin, ExternalLink, Sparkles, Info, FileQuestionMark, BadgeQuestionMark, CircleQuestionMark } from 'lucide-react';
 import { ScoreBreakdownDialog } from './ScoreBreakdownDialog';
 import type { Job } from '../types';
 
@@ -75,7 +75,7 @@ export function JobCard({ job, onOptimizeCV, isSelected = false, onSelect }: Job
       }`}
       onClick={handleClick}
     >
-      <div className="space-y-3">
+      <div className="mb-1">
         {/* Job Title and View Job Button Row */}
         <div className="flex items-start justify-between gap-3">
           <h3 className={`font-bold text-sm leading-tight flex-1 ${
@@ -83,19 +83,19 @@ export function JobCard({ job, onOptimizeCV, isSelected = false, onSelect }: Job
           }`}>
             {job.title}
           </h3>
-          
+          </div>
         </div>
-
+<div className="space-y-3">
         {/* Company and Location Row */}
-      <div className="pb-2">
-        <div className="flex items-center gap-2 text-xs font-normal text-gray-700">
+      <div className="pb-0.5 flex flex-col gap-1">
+        <div className="flex items-center gap-2 text-xs font-normal text-gray-700 tracking-tight">
           <div className="flex items-center gap-1.5">
-            <Building2 className="h-4 w-4 text-gray-400" />
+            <Building2 size={12} strokeWidth={1.25} className="h-3 w-3 text-gray-700" />
             <span>{job.company}</span>
           </div>
          
           <div className="flex items-center gap-1.5">
-            <MapPin className="h-4 w-4 text-gray-400" />
+            <MapPin size={12} strokeWidth={1.25} className="h-3 w-3 text-gray-700" />
             <span>{location}</span>
           </div>          
         </div>
@@ -110,26 +110,25 @@ export function JobCard({ job, onOptimizeCV, isSelected = false, onSelect }: Job
               {workType}
             </Badge>
             {matchScore !== null ? (
-              <div className="flex items-center gap-1.5">
-                <span className={`rounded-sm text-[10px] font-medium px-2.5 py-0.5 rounded-full border ${matchColorClasses}`}>
-                  {matchScore}% Match
-                </span>
+              <div className="flex items-center gap-2">
+                <span className="">
                 <button
                   onClick={handleScoreInfoClick}
-                  className="text-gray-600 text-[10px] hover:text-black transition-colors p-0.5 rounded hover:bg-gray-100"
+                  className={`rounded-sm text-[10px] font-medium px-2 py-0.5 border ${matchColorClasses} flex items-center gap-1`}
                   title="View match score breakdown"
                   aria-label="View match score details"
                 >
-                  <Info className="h-4 w-4" />
+                   {matchScore}% Match
+                  <CircleQuestionMark size={12} strokeWidth={2} className={`font-bold text-${matchColorClasses}`} />
                 </button>
-
+                </span>
                          <Button
             size="sm"
             variant="ghost"
-            className="gap-1 text-xs h-6 shrink-0 font-normal text-gray-500"
+            className="gap-1 text-xs h-6 shrink-0 font-normal text-gray-600"
             onClick={handleViewJobClick}
           >
-            <ExternalLink className="h-3 w-3" />
+            <ExternalLink size={12} strokeWidth={1.25} className="h-3 w-3 text-gray-600" />
             View Job
           </Button>
 

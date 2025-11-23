@@ -5,7 +5,7 @@ import { useJobStore } from '../store/jobStore';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { FileText, Upload, Edit, Download, Trash2 } from 'lucide-react';
+import { FileText, Upload, Edit, Download, Trash2, CloudUpload } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -131,23 +131,23 @@ export function CVPreview() {
       <div className="border-b border-gray-200 bg-white px-6 py-3">
         <div className="flex items-center justify-between mb-0">
           <div className="flex items-center gap-3 flex-1">
-            <div className="flex items-center justify-center w-8 h-8 rounded bg-gray-100">
-              <FileText className="h-5 w-5 text-black" />
+            <div className="flex items-center justify-center w-8 h-8">
+              <FileText size={20} strokeWidth={1.25} className="text-blue-700" />
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-base font-medium text-gray-900">
+            <div className="flex items-center gap-4 flex-wrap">
+              <h2 className="text-sm font-medium text-gray-900">
                 {activeCV.file_name.replace(/\.(docx|pdf|txt|md)$/i, '')}
               </h2>
-              <Badge variant="outline" className="text-xs px-2 py-0.5 border-gray-300 text-gray-600">
+              <Badge variant="outline" className="text-[10px] px-2 py-0.5 border-gray-300 text-gray-400">
                 V2
               </Badge>
               <Button
                 variant="link"
                 size="sm"
-                className="h-auto p-0 text-xs text-black hover:text-gray-700 font-medium"
+                className="h-auto p-0 text-xs text-blue-700 underline hover:text-gray-700 font-medium"
                 onClick={openCVUploader}
               >
-                Upload New CV
+                Upload New CV <CloudUpload size={16} strokeWidth={1.25} className="text-blue-700 hover:text-gray-700" />
               </Button>
             </div>
           </div>
@@ -224,7 +224,7 @@ export function CVPreview() {
                   className="gap-2 bg-gray-900 hover:bg-gray-800 text-white h-7 text-xs"
                   onClick={() => setRightPanelView('optimizer')}
                 >
-                  ✨ Optimize for {targetJob.company}
+                  ✨ Optimise for {targetJob.company} job
                 </Button>
               )}
             </div>

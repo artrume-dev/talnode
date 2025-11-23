@@ -236,16 +236,16 @@ export function JobsList({ onCompanySelectorOpen }: JobsListProps) {
       {hasActiveFilters && allFilteredJobs.length > 0 && allFilteredJobs.length < allJobs.length && (
         <div className="bg-white border-b border-gray-200 px-5 py-2 flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm text-gray-800">
-            <div className="flex items-center gap-1.5 bg-green-100 px-2 py-0.5 rounded-md">
+            <div className="flex items-center gap-1.5 bg-green-50 px-2 py-1 rounded-md">
               <div className="h-2 w-2 rounded-full bg-green-500"></div>
-              <span className="font-medium text-xs text-green-700">AI Analysis Ready</span>
+              <span className="font-medium text-xs text-green-800">AI Analysis Ready</span>
             </div>
-            <span>
+            <span className="text-xs">
               {allFilteredJobs.length} of {allJobs.length} jobs matched.
             </span>
             <button
               onClick={openEditProfile}
-              className="text-blue-800 underline hover:text-gray-700 font-medium"
+              className="text-blue-800 underline hover:text-gray-700 font-medium text-xs"
             >
               Update preferences
             </button>
@@ -302,7 +302,7 @@ export function JobsList({ onCompanySelectorOpen }: JobsListProps) {
               variant="outline"
               size="sm"
               onClick={() => setIsFilterModalOpen(true)}
-              className="h-8 px-3 gap-2 text-xs border-gray-300"
+              className="h-6 p-2 gap-2 text-xs border-gray-300 rounded-md shadow-xs"
             >
               <SlidersHorizontal className="h-3.5 w-3.5" />
               Filters
@@ -315,7 +315,7 @@ export function JobsList({ onCompanySelectorOpen }: JobsListProps) {
                 <Badge
                   key={`${filter.type}-${idx}`}
                   variant="outline"
-                  className="bg-blue-50 text-blue-700 border-blue-200 px-3 py-1 text-xs flex items-center gap-2 cursor-pointer hover:bg-blue-100 transition-colors"
+                  className="rounded-sm bg-blue-50 text-blue-700 border-blue-200 px-3 py-1 text-[10px] flex items-center gap-2 cursor-pointer hover:bg-blue-100 transition-colors"
                   onClick={() => {
                     console.log('🗑️ Removing filter:', filter.type);
                     handleRemoveFilter(filter.type);
@@ -331,7 +331,7 @@ export function JobsList({ onCompanySelectorOpen }: JobsListProps) {
             {activeFilters.length > 2 && (
               <Badge
                 variant="outline"
-                className="bg-blue-50 text-blue-700 border-blue-200 px-3 py-1 text-xs cursor-pointer hover:bg-blue-100"
+                className="text-blue-700 px-3 py-1 text-[10px] cursor-pointer border-none"
                 onClick={() => setIsFilterModalOpen(true)}
               >
                 +{activeFilters.length - 2} more

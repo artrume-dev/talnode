@@ -35,7 +35,7 @@ export interface CompanyWatch {
 }
 
 export class JobDatabase {
-  private db: Database.Database;
+  public db: Database.Database;
 
   constructor(dbPath?: string) {
     const path = dbPath || join(__dirname, '../../data/jobs.db');
