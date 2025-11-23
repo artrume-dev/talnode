@@ -91,6 +91,7 @@ const server = http.createServer(async (req, res) => {
 
       try {
         const newCompany = db.addCustomCompany({
+          user_id: 1, // TODO: Get from authentication context
           company_name,
           careers_url,
           ats_type,
@@ -114,7 +115,7 @@ const server = http.createServer(async (req, res) => {
       const { is_active, company_name, careers_url, ats_type } = body;
 
       try {
-        const updated = db.updateCustomCompany(companyId, {
+        const updated = db.updateCustomCompany(companyId, 1, { // TODO: Get userId from auth
           is_active,
           company_name,
           careers_url,
@@ -133,7 +134,7 @@ const server = http.createServer(async (req, res) => {
 
     if (path.match(/^\/api\/companies\/\d+$/) && req.method === 'DELETE') {
       const companyId = parseInt(path.split('/').pop() || '0');
-      db.deleteCustomCompany(companyId);
+      db.deleteCustomCompany(companyId, 1); // TODO: Get userId from auth
       sendJSON(res, 200, { message: 'Company deleted successfully' });
       return;
     }

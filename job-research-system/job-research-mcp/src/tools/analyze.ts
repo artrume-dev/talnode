@@ -34,8 +34,9 @@ export function analyzeJobFit(
 
   if (cvId) {
     // Get CV from database
+    // TODO: Pass actual user_id when available from context
     try {
-      const cv = db.getCVDocument(cvId);
+      const cv = db.getCVDocument(cvId, 1);
       if (cv && cv.parsed_content) {
         cvContent = cv.parsed_content;
       } else {
@@ -53,8 +54,9 @@ export function analyzeJobFit(
     }
   } else {
     // Try to get active CV if no CV specified
+    // TODO: Pass actual user_id when available from context
     try {
-      const activeCV = db.getActiveCV();
+      const activeCV = db.getActiveCV(1);
       if (activeCV && activeCV.parsed_content) {
         cvContent = activeCV.parsed_content;
       }

@@ -2,6 +2,7 @@ import { JobDatabase, Job } from '../db/schema.js';
 import { scrapeAllCompanies, scrapeCompanies } from '../scrapers/index.js';
 
 export interface SearchFilters {
+  user_id?: number;
   companies?: string[];
   status?: Job['status'];
   priority?: Job['priority'];
@@ -74,6 +75,7 @@ export function getJobs(db: JobDatabase, filters?: SearchFilters): Job[] {
 
   // Get all jobs first
   let jobs = db.getJobs({
+    user_id: filters?.user_id,
     status: filters?.status,
     priority: filters?.priority,
     minAlignment: filters?.minAlignment,
