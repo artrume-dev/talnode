@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
+import axios from 'axios';
 import { useUserStore } from '../store/userStore';
 import { useUIStore } from '../store/uiStore';
 import { useJobStore } from '../store/jobStore';
+import { authService } from '../services/auth';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -251,15 +253,10 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     const fetchCompanies = async () => {
       setLoadingCompanies(true);
       try {
-        const response = await fetch('http://localhost:3001/api/companies');
-        if (response.ok) {
-          const data = await response.json();
-          console.log('📦 Fetched companies:', data);
-          console.log('📊 Companies count:', data.length);
-          setCompanies(data);
-        } else {
-          console.error('Failed to fetch companies:', response.status, response.statusText);
-        }
+        const response = await axios.get('http://localhost:3001/api/companies');
+        console.log('📦 Fetched companies:', response.data);
+        console.log('📊 Companies count:', response.data.length);
+        setCompanies(response.data);
       } catch (error) {
         console.error('Failed to load companies:', error);
       } finally {
