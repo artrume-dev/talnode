@@ -11,6 +11,7 @@ import { MainApp } from './components/MainApp';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { OnboardingWizard } from './components/OnboardingWizard';
+import { CVUploader } from './components/CVUploader';
 import { useUserStore } from './store/userStore';
 
 function OnboardingPage() {
@@ -24,6 +25,8 @@ function OnboardingPage() {
           window.location.href = '/';
         }}
       />
+      {/* Include CVUploader modal for onboarding */}
+      <CVUploader />
     </div>
   );
 }
