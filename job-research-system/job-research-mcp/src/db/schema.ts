@@ -501,6 +501,235 @@ export class JobDatabase {
     return this.db.prepare('SELECT * FROM user_profiles WHERE user_id = ?').get(userId);
   }
 
+  // ============================================================================
+  // JOB APPLICATIONS METHODS
+  // ============================================================================
+
+  /**
+   * Create a new job application
+   */
+  createJobApplication(data: {
+    user_id: number;
+    job_id: number;
+    cv_variant_id?: number;
+    applied_date: string;
+    application_status?: string;
+    application_source?: string;
+    application_notes?: string;
+  }): any {
+    const result = this.db.prepare(`
+      INSERT INTO job_applications (
+        user_id, job_id, cv_variant_id, applied_date, application_status,
+        application_source, application_notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      data.user_id,
+      data.job_id,
+      data.cv_variant_id || null,
+      data.applied_date,
+      data.application_status || 'applied',
+      data.application_source || null,
+      data.application_notes || null
+    );
+
+    return this.db.prepare('SELECT * FROM job_applications WHERE id = ?').get(result.lastInsertRowid);
+  }
+
+  /**
+   * Get all job applications for a user
+   */
+  getJobApplications(userId: number, filters?: {
+    status?: string;
+    page?: number;
+    limit?: number;
+  }): any[] {
+    let query = `
+      SELECT ja.*, j.title as job_title, j.company, j.alignment_score as match_score
+      FROM job_applications ja
+      LEFT JOIN jobs j ON ja.job_id = j.id
+      WHERE ja.user_id = ?
+    `;
+    const params: any[] = [userId];
+
+    if (filters?.status) {
+      query += ' AND ja.application_status = ?';
+      params.push(filters.status);
+    }
+
+    query += ' ORDER BY ja.applied_date DESC';
+
+    if (filters?.limit) {
+      const offset = ((filters.page || 1) - 1) * filters.limit;
+      query += ` LIMIT ? OFFSET ?`;
+      params.push(filters.limit, offset);
+    }
+
+    return this.db.prepare(query).all(...params);
+  }
+
+  /**
+   * Get a single job application by ID
+   */
+  getJobApplication(id: number, userId: number): any {
+    return this.db.prepare(`
+      SELECT ja.*, j.title as job_title, j.company, j.url as job_url, j.alignment_score as match_score
+      FROM job_applications ja
+      LEFT JOIN jobs j ON ja.job_id = j.id
+      WHERE ja.id = ? AND ja.user_id = ?
+    `).get(id, userId);
+  }
+
+  /**
+   * Update a job application
+   */
+  updateJobApplication(id: number, userId: number, updates: any): any {
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    const allowedFields = [
+      'application_status', 'application_source', 'application_notes',
+      'follow_up_date', 'interview_date', 'interview_notes',
+      'offer_amount', 'offer_currency', 'decision', 'decision_date', 'rejection_reason'
+    ];
+
+    for (const field of allowedFields) {
+      if (updates[field] !== undefined) {
+        fields.push(`${field} = ?`);
+        values.push(updates[field]);
+      }
+    }
+
+    if (fields.length === 0) {
+      throw new Error('No fields to update');
+    }
+
+    fields.push('updated_at = CURRENT_TIMESTAMP');
+    values.push(id, userId);
+
+    this.db.prepare(`UPDATE job_applications SET ${fields.join(', ')} WHERE id = ? AND user_id = ?`).run(...values);
+
+    return this.getJobApplication(id, userId);
+  }
+
+  /**
+   * Delete a job application
+   */
+  deleteJobApplication(id: number, userId: number): void {
+    this.db.prepare('DELETE FROM job_applications WHERE id = ? AND user_id = ?').run(id, userId);
+  }
+
+  /**
+   * Get count of job applications by status
+   */
+  getJobApplicationsCount(userId: number): any {
+    return this.db.prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN application_status = 'applied' THEN 1 ELSE 0 END) as applied,
+        SUM(CASE WHEN application_status = 'in_review' THEN 1 ELSE 0 END) as in_review,
+        SUM(CASE WHEN application_status = 'interview_scheduled' THEN 1 ELSE 0 END) as interview,
+        SUM(CASE WHEN decision = 'accepted' THEN 1 ELSE 0 END) as accepted,
+        SUM(CASE WHEN decision = 'rejected' THEN 1 ELSE 0 END) as rejected
+      FROM job_applications
+      WHERE user_id = ?
+    `).get(userId);
+  }
+
+  /**
+   * Check if a job has been applied to by the user
+   */
+  hasAppliedToJob(userId: number, jobId: number): boolean {
+    const result = this.db.prepare(
+      'SELECT id FROM job_applications WHERE user_id = ? AND job_id = ? LIMIT 1'
+    ).get(userId, jobId);
+    return !!result;
+  }
+
+  // ============================================================================
+  // DASHBOARD STATISTICS METHODS
+  // ============================================================================
+
+  /**
+   * Get dashboard statistics for a user
+   */
+  getDashboardStats(userId: number): any {
+    // Count CVs uploaded
+    const cvsUploaded: any = this.db.prepare(
+      'SELECT COUNT(*) as count FROM cv_documents WHERE user_id = ?'
+    ).get(userId);
+
+    // Count CV optimizations (variants)
+    const cvsOptimized: any = this.db.prepare(
+      'SELECT COUNT(*) as count FROM cv_variants WHERE user_id = ?'
+    ).get(userId);
+
+    // Count jobs applied
+    const jobsApplied: any = this.db.prepare(
+      'SELECT COUNT(*) as count FROM job_applications WHERE user_id = ?'
+    ).get(userId);
+
+    // Average match score for applied jobs
+    const avgMatchScore: any = this.db.prepare(`
+      SELECT AVG(j.alignment_score) as avg_score
+      FROM job_applications ja
+      LEFT JOIN jobs j ON ja.job_id = j.id
+      WHERE ja.user_id = ?
+    `).get(userId);
+
+    return {
+      cvsUploaded: cvsUploaded?.count || 0,
+      cvsOptimized: cvsOptimized?.count || 0,
+      jobsApplied: jobsApplied?.count || 0,
+      averageMatchScore: avgMatchScore?.avg_score || 0
+    };
+  }
+
+  /**
+   * Get recent CV optimizations for dashboard
+   */
+  getRecentCVOptimizations(userId: number, limit: number = 5): any[] {
+    return this.db.prepare(`
+      SELECT
+        cv.id,
+        cv.cv_document_id as base_cv_id,
+        cd.file_name as base_cv_name,
+        cv.job_id,
+        j.title as job_title,
+        j.company,
+        cv.variant_type,
+        cv.match_score,
+        cv.created_at as optimized_date,
+        cv.changes_summary,
+        cv.strong_matches,
+        cv.gaps
+      FROM cv_variants cv
+      LEFT JOIN cv_documents cd ON cv.cv_document_id = cd.id
+      LEFT JOIN jobs j ON cv.job_id = j.id
+      WHERE cv.user_id = ?
+      ORDER BY cv.created_at DESC
+      LIMIT ?
+    `).all(userId, limit);
+  }
+
+  /**
+   * Get recent job applications for dashboard
+   */
+  getRecentJobApplications(userId: number, limit: number = 5): any[] {
+    return this.db.prepare(`
+      SELECT
+        ja.*,
+        j.title as job_title,
+        j.company,
+        j.url as job_url,
+        j.alignment_score as match_score
+      FROM job_applications ja
+      LEFT JOIN jobs j ON ja.job_id = j.id
+      WHERE ja.user_id = ?
+      ORDER BY ja.applied_date DESC
+      LIMIT ?
+    `).all(userId, limit);
+  }
+
   close() {
     this.db.close();
   }
