@@ -801,10 +801,22 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
           {/* Navigation Buttons */}
           <div className="flex items-center justify-between pt-6 border-t">
-            <Button onClick={handleBack} variant="outline" disabled={step === 1}>
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
+            <div className="flex gap-2">
+              <Button onClick={handleBack} variant="outline" disabled={step === 1}>
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back
+              </Button>
+              <Button
+                onClick={() => {
+                  setOnboarded(true);
+                  onComplete();
+                }}
+                variant="ghost"
+                className="text-gray-600 hover:text-gray-900"
+              >
+                Skip for now
+              </Button>
+            </div>
 
             {step < totalSteps ? (
               <Button onClick={handleNext} disabled={!canProceed()} className="bg-black hover:bg-gray-800 text-white">
