@@ -3,6 +3,7 @@ import { useDropzone } from 'react-dropzone';
 import { useUserStore } from '../store/userStore';
 import { useUIStore } from '../store/uiStore';
 import { useJobStore } from '../store/jobStore';
+import { authService } from '../services/auth';
 import {
   Dialog,
   DialogContent,
@@ -115,8 +116,16 @@ export function CVUploader() {
         setUploadProgress(prev => Math.min(prev + 10, 90));
       }, 200);
 
+      // Get auth token for the request
+      const token = authService.getAccessToken();
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch('http://localhost:3001/api/cv/upload', {
         method: 'POST',
+        headers,
         body: formData,
       });
 
@@ -155,12 +164,20 @@ export function CVUploader() {
   const handleSave = async () => {
     try {
       setSavingState('saving');
+
+      // Get auth token for the request
+      const token = authService.getAccessToken();
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       // Save to backend
       const response = await fetch('http://localhost:3001/api/cv/save', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           file_name: fileName,
           file_path: fileMetadata?.file_path || '',
