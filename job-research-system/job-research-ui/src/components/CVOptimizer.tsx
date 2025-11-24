@@ -5,6 +5,7 @@ import { Download, Sparkles, TrendingUp, AlertCircle, Check, X } from 'lucide-re
 import type { Job } from '../types';
 import { aiService } from '../services/ai';
 import { useUserStore } from '../store/userStore';
+import api from '../services/api';
 
 interface CVOptimizerProps {
   job: Job;
@@ -54,13 +55,8 @@ export function CVOptimizer({ job, onClose }: CVOptimizerProps) {
         }
 
         // If not in store, fetch from API
-        const response = await fetch(`http://localhost:3001/api/cv/${activeCVId}`);
-        if (!response.ok) {
-          throw new Error('Failed to load CV from server');
-        }
-
-        const data = await response.json();
-        setCVContent(data.parsed_content || '');
+        const response = await api.get(`/cv/${activeCVId}`);
+        setCVContent(response.data.parsed_content || '');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load CV content');
         console.error('CV loading error:', err);
@@ -128,18 +124,10 @@ export function CVOptimizer({ job, onClose }: CVOptimizerProps) {
 
     try {
       // Save optimized CV content to the database
-      const response = await fetch('http://localhost:3001/api/cv/update', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cv_id: activeCVId,
-          parsed_content: selectedVersionData.content,
-        }),
+      await api.put('/cv/update', {
+        cv_id: activeCVId,
+        parsed_content: selectedVersionData.content,
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to update CV');
-      }
 
       // Update local store using store action
       updateCVContent(activeCVId, selectedVersionData.content);
