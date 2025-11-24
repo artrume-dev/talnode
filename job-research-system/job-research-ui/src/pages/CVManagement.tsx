@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import { FileText, CheckCircle, Upload, Trash2, Eye } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { useUserStore } from '../store/userStore';
@@ -31,10 +31,10 @@ export function CVManagement() {
   const fetchCVs = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('http://localhost:3001/api/cv/list');
+      const response = await api.get('/cv/list');
       setCVDocuments(response.data.cvs || []);
     } catch (error) {
-      console.error('Error fetching CVs:', error);
+      console.error('❌ Error fetching CVs:', error);
     } finally {
       setLoading(false);
     }
@@ -52,10 +52,10 @@ export function CVManagement() {
     if (!confirm('Are you sure you want to delete this CV?')) return;
 
     try {
-      await axios.delete(`http://localhost:3001/api/cv/${id}`);
+      await api.del(`/cv/${id}`);
       removeCVDocument(id);
     } catch (error) {
-      console.error('Error deleting CV:', error);
+      console.error('❌ Error deleting CV:', error);
     }
   };
 
