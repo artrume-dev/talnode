@@ -3,7 +3,7 @@ import { useDropzone } from 'react-dropzone';
 import { useUserStore } from '../store/userStore';
 import { useUIStore } from '../store/uiStore';
 import { useJobStore } from '../store/jobStore';
-import { authService } from '../services/auth';
+import api from '../services/api';
 import {
   Dialog,
   DialogContent,
@@ -116,29 +116,17 @@ export function CVUploader() {
         setUploadProgress(prev => Math.min(prev + 10, 90));
       }, 200);
 
-      // Get auth token for the request
-      const token = authService.getAccessToken();
-      const headers: HeadersInit = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch('http://localhost:3001/api/cv/upload', {
-        method: 'POST',
-        headers,
-        body: formData,
+      const response = await api.post('/cv/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
       });
 
       clearInterval(progressInterval);
       setUploadProgress(100);
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to upload CV');
-      }
-
       setUploadState('parsing');
-      const data = await response.json();
+      const data = response.data;
 
       // Store file metadata from upload response
       setFileMetadata({
@@ -165,33 +153,16 @@ export function CVUploader() {
     try {
       setSavingState('saving');
 
-      // Get auth token for the request
-      const token = authService.getAccessToken();
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
       // Save to backend
-      const response = await fetch('http://localhost:3001/api/cv/save', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          file_name: fileName,
-          file_path: fileMetadata?.file_path || '',
-          file_type: fileMetadata?.file_type || '',
-          file_size: fileMetadata?.file_size || 0,
-          parsed_content: parsedContent,
-        }),
+      const response = await api.post('/cv/save', {
+        file_name: fileName,
+        file_path: fileMetadata?.file_path || '',
+        file_type: fileMetadata?.file_type || '',
+        file_size: fileMetadata?.file_size || 0,
+        parsed_content: parsedContent,
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to save CV');
-      }
-
-      const data = await response.json();
+      const data = response.data;
 
       // Update local store
       addCVDocument({
@@ -237,27 +208,17 @@ export function CVUploader() {
 
   const analyzeJobs = async (cvId: number, expectedCount: number) => {
     try {
-      const analyzeResponse = await fetch('http://localhost:3001/api/jobs/analyze-all', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          cv_id: cvId,
-        }),
+      const analyzeResponse = await api.post('/jobs/analyze-all', {
+        cv_id: cvId,
       });
 
-      if (analyzeResponse.ok) {
-        const analyzeData = await analyzeResponse.json();
-        console.log(`✅ Successfully analyzed ${analyzeData.analyzed_count} jobs!`);
+      const analyzeData = analyzeResponse.data;
+      console.log(`✅ Successfully analyzed ${analyzeData.analyzed_count} jobs!`);
 
-        // Reload jobs to get updated scores
-        await loadJobs();
-      } else {
-        console.error('Job analysis request failed');
-      }
+      // Reload jobs to get updated scores
+      await loadJobs();
     } catch (analyzeError) {
-      console.error('Job analysis failed:', analyzeError);
+      console.error('❌ Job analysis failed:', analyzeError);
     }
   };
 
