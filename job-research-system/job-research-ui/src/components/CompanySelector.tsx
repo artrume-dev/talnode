@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Badge } from './ui/badge';
 import { Checkbox } from './ui/checkbox';
 import { Plus, Search, X, Building2, RefreshCw } from 'lucide-react';
+import api from '../services/api';
 
 interface Company {
   id: number;
@@ -52,15 +53,11 @@ export function CompanySelector() {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch('http://localhost:3001/api/companies');
+      const response = await api.get('/companies');
+      const data = response.data;
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch companies');
-      }
-
-      const data = await response.json();
       // API now returns array of strings, need to convert to Company objects
-      const companyObjects = Array.isArray(data) 
+      const companyObjects = Array.isArray(data)
         ? data.map((name: string, index: number) => ({
             id: index + 1,
             company_name: name,
@@ -70,7 +67,7 @@ export function CompanySelector() {
             added_by_user: false
           }))
         : (data.companies || []);
-      
+
       setCompanies(companyObjects);
       setFilteredCompanies(companyObjects);
     } catch (err) {
@@ -107,27 +104,21 @@ export function CompanySelector() {
     try {
       setScraping(true);
       setError(null);
-      
+
       // Get company IDs from selected company names
       const selectedCompanyIds = companies
         .filter((c) => selectedCompanies.includes(c.company_name))
         .map((c) => c.id);
 
-      const response = await fetch('http://localhost:3001/api/companies/find-jobs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ company_ids: selectedCompanyIds }),
+      const response = await api.post('/companies/find-jobs', {
+        company_ids: selectedCompanyIds,
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to find jobs');
-      }
+      const data = response.data;
 
-      const data = await response.json();
-      
       // Reload jobs to show new results
       await loadJobs();
-      
+
       // Show success message (you could add a toast notification here)
       console.log(data.message);
       
