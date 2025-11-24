@@ -30,6 +30,8 @@ import {
 import { parseCV } from './tools/cv-upload.js';
 import authRoutes from './routes/auth.js';
 import { authenticateUser } from './auth/middleware.js';
+import { createDashboardRoutes } from './routes/dashboard.js';
+import { createApplicationsRoutes } from './routes/applications.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -86,13 +88,18 @@ app.get('/health', (_req, res) => {
 // Mount authentication routes
 app.use('/api/auth', authRoutes);
 
+// Mount dashboard routes
+app.use('/api/dashboard', createDashboardRoutes(db));
+
+// Mount applications routes
+app.use('/api', createApplicationsRoutes(db));
+
 // Company Management API
 app.get('/api/companies', authenticateUser, (req, res) => {
   try {
     const companies = db.getAllCompanies(req.user!.userId);
-    // Return array of company names for the UI
-    const companyNames = companies.map((c: any) => c.company_name);
-    res.json(companyNames);
+    // Return full company objects with IDs
+    res.json(companies);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

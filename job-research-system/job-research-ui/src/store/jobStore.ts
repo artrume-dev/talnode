@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Job } from '../types';
+import api from '../services/api';
 
 interface JobFilters {
   status?: string;
@@ -161,23 +162,14 @@ export const useJobStore = create<JobStore>((set, get) => ({
   loadJobs: async () => {
     try {
       set({ isLoading: true, error: null });
-      
-      const response = await fetch('http://localhost:3001/api/tools/get_jobs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
 
-      if (!response.ok) {
-        throw new Error('Failed to load jobs');
-      }
-
-      const jobs = await response.json();
+      const response = await api.post('/tools/get_jobs', {});
+      const jobs = response.data;
       set({ jobs, totalJobs: jobs.length, isLoading: false });
     } catch (error) {
-      set({ 
+      set({
         error: error instanceof Error ? error.message : 'Failed to load jobs',
-        isLoading: false 
+        isLoading: false
       });
     }
   },

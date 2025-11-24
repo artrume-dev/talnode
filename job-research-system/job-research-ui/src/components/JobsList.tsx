@@ -10,6 +10,7 @@ import { Input } from './ui/input';
 import { Badge } from './ui/badge';
 import { Briefcase, X, Search, AlertCircle, Filter as FilterIcon, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import type { Job } from '../types';
+import api from '../services/api';
 
 interface JobsListProps {
   onCompanySelectorOpen?: () => void;
@@ -159,34 +160,24 @@ export function JobsList({ onCompanySelectorOpen }: JobsListProps) {
 
     setIsAnalyzing(true);
     try {
-      const response = await fetch('http://localhost:3001/api/jobs/analyze-all', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          cv_id: activeCVId,
-        }),
+      const response = await api.post('/jobs/analyze-all', {
+        cv_id: activeCVId,
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log(`✅ Analyzed ${data.analyzed_count} jobs`);
-        if (data.failed_count > 0) {
-          console.warn(`⚠️ Failed to analyze ${data.failed_count} jobs`);
-        }
-
-        // Reload jobs to get updated scores from database
-        await loadJobs();
-        showAlert({
-          title: 'Analysis Complete',
-          description: `Successfully analyzed ${data.analyzed_count} jobs!`,
-          confirmText: 'OK',
-          variant: 'success',
-        });
-      } else {
-        throw new Error('Failed to analyze jobs');
+      const data = response.data;
+      console.log(`✅ Analyzed ${data.analyzed_count} jobs`);
+      if (data.failed_count > 0) {
+        console.warn(`⚠️ Failed to analyze ${data.failed_count} jobs`);
       }
+
+      // Reload jobs to get updated scores from database
+      await loadJobs();
+      showAlert({
+        title: 'Analysis Complete',
+        description: `Successfully analyzed ${data.analyzed_count} jobs!`,
+        confirmText: 'OK',
+        variant: 'success',
+      });
     } catch (error) {
       console.error('Job analysis failed:', error);
       showAlert({

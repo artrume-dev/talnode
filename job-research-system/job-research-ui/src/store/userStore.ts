@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { authService } from '../services/auth';
+import api from '../services/api';
 
 interface UserProfile {
   id: number;
@@ -99,20 +99,10 @@ export const useUserStore = create<UserStore>()(
 
         // Persist to backend
         try {
-          const token = authService.getAccessToken();
-          const response = await fetch(`http://localhost:3001/api/cv/${id}/activate`, {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token && { 'Authorization': `Bearer ${token}` }),
-            },
-          });
-
-          if (!response.ok) {
-            console.error('Failed to activate CV on backend');
-          }
+          await api.put(`/cv/${id}/activate`);
+          console.log('✅ CV activated successfully on backend');
         } catch (error) {
-          console.error('Error activating CV:', error);
+          console.error('❌ Error activating CV:', error);
         }
       },
 

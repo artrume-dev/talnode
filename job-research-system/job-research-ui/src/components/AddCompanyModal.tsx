@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from './ui/select';
 import { AlertCircle, Building2 } from 'lucide-react';
+import api from '../services/api';
 
 const companySchema = z.object({
   company_name: z.string().min(2, 'Company name must be at least 2 characters'),
@@ -65,18 +66,7 @@ export function AddCompanyModal({ onCompanyAdded }: AddCompanyModalProps) {
     setSuccess(false);
 
     try {
-      const response = await fetch('http://localhost:3001/api/companies', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to add company');
-      }
+      await api.post('/companies', data);
 
       setSuccess(true);
       reset();

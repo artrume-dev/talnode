@@ -22,6 +22,7 @@ import { CustomAlert, AnalyzeJobsAlert } from './ui/alert-dialog-custom';
 import { Button } from './ui/button';
 import { Briefcase, Search, Bell, Plus, LogOut, User } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import api from '../services/api';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -77,43 +78,31 @@ export function MainApp() {
   const loadJobs = async () => {
     try {
       // Fetch jobs from API
-      const response = await fetch('http://localhost:3001/api/tools/get_jobs', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({}),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setJobs(data || []);
-      }
+      const response = await api.post('/tools/get_jobs', {});
+      const data = response.data;
+      setJobs(data || []);
     } catch (err) {
-      console.error('Failed to load jobs:', err);
+      console.error('❌ Failed to load jobs:', err);
     }
   };
 
   const loadCVs = async () => {
     try {
       // Fetch CV list from API
-      const response = await fetch('http://localhost:3001/api/cv/list');
+      const response = await api.get('/cv/list');
+      const data = response.data;
+      const cvs = data.cvs || [];
+      setCVDocuments(cvs);
 
-      if (response.ok) {
-        const data = await response.json();
-        const cvs = data.cvs || [];
-        setCVDocuments(cvs);
-
-        // Set active CV if one exists
-        const activeCV = cvs.find((cv: any) => cv.is_active);
-        if (activeCV) {
-          setActiveCVId(activeCV.id);
-        }
-
-        console.log(`📄 Loaded ${cvs.length} CV documents, active: ${activeCV?.id || 'none'}`);
+      // Set active CV if one exists
+      const activeCV = cvs.find((cv: any) => cv.is_active);
+      if (activeCV) {
+        setActiveCVId(activeCV.id);
       }
+
+      console.log(`📄 Loaded ${cvs.length} CV documents, active: ${activeCV?.id || 'none'}`);
     } catch (err) {
-      console.error('Failed to load CVs:', err);
+      console.error('❌ Failed to load CVs:', err);
     }
   };
 

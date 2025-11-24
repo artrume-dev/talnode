@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useUserStore } from '../store/userStore';
 import { useUIStore } from '../store/uiStore';
 import { useJobStore } from '../store/jobStore';
+import api from '../services/api';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -135,20 +136,18 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
       if (step !== 5) return; // Only reload on step 5
       
       try {
-        const response = await fetch('http://localhost:3001/api/cv/list');
-        if (response.ok) {
-          const data = await response.json();
-          const cvs = data.cvs || [];
-          setCVDocuments(cvs);
-          
-          // Set active CV if one exists
-          const activeCV = cvs.find((cv: any) => cv.is_active);
-          if (activeCV) {
-            setActiveCVId(activeCV.id);
-          }
-          
-          console.log(`📄 Reloaded ${cvs.length} CV documents in wizard, active: ${activeCV?.id || 'none'}`);
+        const response = await api.get('/cv/list');
+        const data = response.data;
+        const cvs = data.cvs || [];
+        setCVDocuments(cvs);
+
+        // Set active CV if one exists
+        const activeCV = cvs.find((cv: any) => cv.is_active);
+        if (activeCV) {
+          setActiveCVId(activeCV.id);
         }
+
+        console.log(`📄 Reloaded ${cvs.length} CV documents in wizard, active: ${activeCV?.id || 'none'}`);
       } catch (err) {
         console.error('Failed to reload CVs in wizard:', err);
       }
@@ -191,56 +190,45 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         preferred_job_types: JSON.stringify(selectedJobTypes),
       };
 
-      const response = await fetch('http://localhost:3001/api/profile/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(profileUpdate),
-      });
+      const response = await api.post('/profile/save', profileUpdate);
+      const savedProfile = response.data;
+      updateProfile(savedProfile);
 
-      if (response.ok) {
-        const savedProfile = await response.json();
-        updateProfile(savedProfile);
-        
-        setSearchProgress(30);
-        setSearchMessage('Profile saved successfully!');
-        
-        // Save selected companies to jobStore
-        const { selectAllCompanies } = useJobStore.getState();
-        selectAllCompanies(selectedCompanies);
-        
-        setSearchProgress(50);
-        setSearchMessage(`AI is searching ${selectedCompanies.length} companies for relevant jobs...`);
-        
-        // Trigger job search based on selected companies
-        console.log('🔍 Searching for jobs from selected companies...');
-        try {
-          const searchResponse = await fetch('http://localhost:3001/api/tools/search_ai_jobs', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ companies: selectedCompanies }),
-          });
-          
-          setSearchProgress(80);
-          setSearchMessage('Analyzing job matches based on your preferences...');
-          
-          if (searchResponse.ok) {
-            const searchResults = await searchResponse.json();
-            console.log(`✅ Found ${searchResults.length} new jobs from ${selectedCompanies.length} companies`);
-            
-            setSearchProgress(100);
-            setSearchMessage(`Found ${searchResults.length} relevant jobs! Preparing your dashboard...`);
-            
-            // Wait a moment to show completion
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
-        } catch (searchError) {
-          console.error('Job search failed:', searchError);
-          setSearchMessage('Completing setup...');
-        }
-        
-        setOnboarded(true);
-        onComplete();
+      setSearchProgress(30);
+      setSearchMessage('Profile saved successfully!');
+
+      // Save selected companies to jobStore
+      const { selectAllCompanies } = useJobStore.getState();
+      selectAllCompanies(selectedCompanies);
+
+      setSearchProgress(50);
+      setSearchMessage(`AI is searching ${selectedCompanies.length} companies for relevant jobs...`);
+
+      // Trigger job search based on selected companies
+      console.log('🔍 Searching for jobs from selected companies...');
+      try {
+        const searchResponse = await api.post('/tools/search_ai_jobs', {
+          companies: selectedCompanies
+        });
+
+        setSearchProgress(80);
+        setSearchMessage('Analyzing job matches based on your preferences...');
+
+        const searchResults = searchResponse.data;
+        console.log(`✅ Found ${searchResults.length} new jobs from ${selectedCompanies.length} companies`);
+
+        setSearchProgress(100);
+        setSearchMessage(`Found ${searchResults.length} relevant jobs! Preparing your dashboard...`);
+
+        // Wait a moment to show completion
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } catch (searchError) {
+        console.error('Job search failed:', searchError);
+        setSearchMessage('Completing setup...');
       }
+
+      setOnboarded(true);
+      onComplete();
     } catch (error) {
       console.error('Failed to save profile:', error);
     }
@@ -251,15 +239,10 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     const fetchCompanies = async () => {
       setLoadingCompanies(true);
       try {
-        const response = await fetch('http://localhost:3001/api/companies');
-        if (response.ok) {
-          const data = await response.json();
-          console.log('📦 Fetched companies:', data);
-          console.log('📊 Companies count:', data.length);
-          setCompanies(data);
-        } else {
-          console.error('Failed to fetch companies:', response.status, response.statusText);
-        }
+        const response = await api.get('/companies');
+        console.log('📦 Fetched companies:', response.data);
+        console.log('📊 Companies count:', response.data.length);
+        setCompanies(response.data);
       } catch (error) {
         console.error('Failed to load companies:', error);
       } finally {
@@ -679,24 +662,20 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                     if (!linkedinUrl) return;
                     setLinkedinLoading(true);
                     try {
-                      const response = await fetch('http://localhost:3001/api/profile/linkedin-import', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ linkedin_url: linkedinUrl }),
+                      const response = await api.post('/profile/linkedin-import', {
+                        linkedin_url: linkedinUrl
                       });
-                      
-                      if (response.ok) {
-                        const data = await response.json();
-                        setProfileData({
-                          ...profileData,
-                          full_name: data.full_name || profileData.full_name,
-                          headline: data.headline || profileData.headline,
-                          summary: data.summary || profileData.summary,
-                          current_position: data.current_position || profileData.current_position,
-                          years_of_experience: data.years_of_experience || profileData.years_of_experience,
-                          linkedin_url: linkedinUrl,
-                        });
-                      }
+
+                      const data = response.data;
+                      setProfileData({
+                        ...profileData,
+                        full_name: data.full_name || profileData.full_name,
+                        headline: data.headline || profileData.headline,
+                        summary: data.summary || profileData.summary,
+                        current_position: data.current_position || profileData.current_position,
+                        years_of_experience: data.years_of_experience || profileData.years_of_experience,
+                        linkedin_url: linkedinUrl,
+                      });
                     } catch (error) {
                       console.error('LinkedIn import failed:', error);
                     } finally {

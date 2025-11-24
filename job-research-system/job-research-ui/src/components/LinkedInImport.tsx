@@ -17,6 +17,7 @@ import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Label } from './ui/label';
 import { AlertCircle, Linkedin, CheckCircle2} from 'lucide-react';
+import api from '../services/api';
 
 const linkedInSchema = z.object({
   linkedin_url: z.string().url('Please enter a valid LinkedIn URL').optional().or(z.literal('')),
@@ -77,20 +78,8 @@ export function LinkedInImport() {
       };
 
       // Save to backend
-      const response = await fetch('http://localhost:3001/api/profile', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(profileData),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to save profile');
-      }
-
-      const result = await response.json();
+      const response = await api.post('/profile', profileData);
+      const result = response.data;
 
       // Update local store
       setProfile({

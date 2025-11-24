@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { MessageSquare, X, Sparkles, Briefcase, Filter } from 'lucide-react';
 import type { ChatMessage } from '../types';
+import api from '../services/api';
 
 interface ChatInterfaceProps {
   onClose?: () => void;
@@ -61,36 +62,24 @@ export function ChatInterface({ onClose }: ChatInterfaceProps) {
         if (keywords) {
           try {
             // Call backend to search and reload jobs
-            const searchResponse = await fetch('http://localhost:3001/api/tools/search_ai_jobs', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ companies: [] }), // Search all companies
-            });
-            
-            if (searchResponse.ok) {
-              // Reload jobs from database
-              const jobsResponse = await fetch('http://localhost:3001/api/jobs');
-              if (jobsResponse.ok) {
-                const allJobs = await jobsResponse.json();
-                setJobs(allJobs);
-                
-                // Filter jobs by keywords
-                const matchingJobs = allJobs.filter((job: any) => 
-                  job.title?.toLowerCase().includes(keywords) ||
-                  job.description?.toLowerCase().includes(keywords) ||
-                  job.tech_stack?.some((tech: string) => tech.toLowerCase().includes(keywords))
-                );
-                
-                // Set search query to filter in UI
-                setSearchQuery(keywords);
-                
-                responseContent = `✅ Found ${matchingJobs.length} jobs matching "${keywords}" out of ${allJobs.length} total positions. The list has been filtered to show relevant results.`;
-              } else {
-                throw new Error('Failed to load jobs');
-              }
-            } else {
-              throw new Error('Failed to search jobs');
-            }
+            await api.post('/tools/search_ai_jobs', { companies: [] }); // Search all companies
+
+            // Reload jobs from database
+            const jobsResponse = await api.get('/jobs');
+            const allJobs = jobsResponse.data;
+            setJobs(allJobs);
+
+            // Filter jobs by keywords
+            const matchingJobs = allJobs.filter((job: any) =>
+              job.title?.toLowerCase().includes(keywords) ||
+              job.description?.toLowerCase().includes(keywords) ||
+              job.tech_stack?.some((tech: string) => tech.toLowerCase().includes(keywords))
+            );
+
+            // Set search query to filter in UI
+            setSearchQuery(keywords);
+
+            responseContent = `✅ Found ${matchingJobs.length} jobs matching "${keywords}" out of ${allJobs.length} total positions. The list has been filtered to show relevant results.`;
           } catch (error) {
             console.error('Search error:', error);
             responseContent = `❌ Failed to search for new jobs. Searching existing ${jobs.length} jobs for "${keywords}".`;
