@@ -6,6 +6,7 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { FileText, Upload, Edit, Download, Trash2, CloudUpload } from 'lucide-react';
+import api, { del } from '../services/api';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,23 +40,15 @@ export function CVPreview() {
     if (!activeCV) return;
 
     try {
-      const response = await fetch('http://localhost:3001/api/cv/update', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cv_id: activeCV.id,
-          parsed_content: editedContent,
-        }),
+      await api.put('/cv/update', {
+        cv_id: activeCV.id,
+        parsed_content: editedContent,
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to update CV');
-      }
 
       updateCVContent(activeCV.id, editedContent);
       setIsEditing(false);
     } catch (error) {
-      console.error('Failed to save CV:', error);
+      console.error('❌ Failed to save CV:', error);
       alert('Failed to save CV. Please try again.');
     }
   };
@@ -83,18 +76,12 @@ export function CVPreview() {
     if (!activeCV) return;
 
     try {
-      const response = await fetch(`http://localhost:3001/api/cv/${activeCV.id}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete CV');
-      }
+      await del(`/cv/${activeCV.id}`);
 
       removeCVDocument(activeCV.id);
       setShowDeleteDialog(false);
     } catch (error) {
-      console.error('Failed to delete CV:', error);
+      console.error('❌ Failed to delete CV:', error);
       alert('Failed to delete CV. Please try again.');
     }
   };
