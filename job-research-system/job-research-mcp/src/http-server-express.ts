@@ -29,9 +29,10 @@ import {
 } from './tools/index.js';
 import { parseCV } from './tools/cv-upload.js';
 import authRoutes from './routes/auth.js';
-import { authenticateUser } from './auth/middleware.js';
+import { authenticateUser, optionalAuth } from './auth/middleware.js';
 import { createDashboardRoutes } from './routes/dashboard.js';
 import { createApplicationsRoutes } from './routes/applications.js';
+import { getAllDomains, DOMAIN_CATEGORIES } from './domains/domain-registry.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -91,19 +92,48 @@ app.use('/api/auth', authRoutes);
 // Mount dashboard routes
 app.use('/api/dashboard', createDashboardRoutes(db));
 
-// Mount applications routes
-app.use('/api', createApplicationsRoutes(db));
-
-// Company Management API
-app.get('/api/companies', authenticateUser, (req, res) => {
+// Company Management API (BEFORE applications routes to avoid auth middleware)
+app.get('/api/companies', optionalAuth, (req, res) => {
+  console.log('🎯 /api/companies endpoint hit! User:', req.user?.userId || 'unauthenticated');
   try {
-    const companies = db.getAllCompanies(req.user!.userId);
+    // If user is authenticated, pass userId to get user-specific + shared companies
+    // If not authenticated, pass undefined to get only shared companies
+    const userId = req.user?.userId;
+    const companies = db.getAllCompanies(userId);
+    console.log(`📦 Returning ${companies.length} companies`);
     // Return full company objects with IDs
     res.json(companies);
+  } catch (error: any) {
+    console.error('❌ Error in /api/companies:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// DOMAIN ENDPOINTS - User Domain Selection & Matching (PUBLIC)
+// ============================================================================
+
+// Get all available domains for selection (no auth required - just listing options)
+app.get('/api/domains', (req, res) => {
+  try {
+    const domains = getAllDomains().map(d => ({
+      id: d.id,
+      name: d.name,
+      category: d.category,
+      description: d.description,
+    }));
+
+    res.json({ 
+      domains,
+      categories: DOMAIN_CATEGORIES
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Mount applications routes (AFTER specific routes to avoid catching them)
+app.use('/api', createApplicationsRoutes(db));
 
 app.post('/api/companies', authenticateUser, (req, res) => {
   try {
@@ -445,6 +475,40 @@ app.put('/api/profile/:id', authenticateUser, (req, res) => {
   }
 });
 
+// Update user's selected domains
+app.put('/api/profile/domains', authenticateUser, (req, res) => {
+  try {
+    const { domains } = req.body;
+    
+    if (!Array.isArray(domains)) {
+      return res.status(400).json({ error: 'domains must be an array of domain IDs' });
+    }
+
+    // Validate domain IDs
+    const validDomains = getAllDomains().map(d => d.id);
+    const invalidDomains = domains.filter(id => !validDomains.includes(id));
+    
+    if (invalidDomains.length > 0) {
+      return res.status(400).json({ 
+        error: 'Invalid domain IDs',
+        invalid: invalidDomains
+      });
+    }
+
+    // Update user profile with domains
+    db.updateUserProfile(req.user!.userId, {
+      user_domains: JSON.stringify(domains)
+    });
+
+    res.json({ 
+      message: 'Domains updated successfully',
+      domains 
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Tool API routes (existing functionality)
 app.post('/api/tools/search_ai_jobs', authenticateUser, async (req, res) => {
   try {
@@ -537,8 +601,8 @@ app.post('/api/jobs/analyze-all', authenticateUser, (req, res) => {
     // Use job_id (string) not id (number) - analyzeJobFit expects job_id
     const jobIds = jobs.map((job: any) => job.job_id);
 
-    // Batch analyze all jobs with user preferences
-    const result = batchAnalyzeJobs(db, jobIds, cv_path, cv_id, industries);
+    // Batch analyze all jobs with user preferences and user_id
+    const result = batchAnalyzeJobs(db, jobIds, cv_path, cv_id, industries, req.user!.userId);
 
     res.json({
       success: true,

@@ -47,7 +47,7 @@ export function CVOptimizer({ job, onClose }: CVOptimizerProps) {
 
       try {
         // Try to get CV from local store first
-        const localCV = cvDocuments.find(cv => cv.id === activeCVId);
+        const localCV = (cvDocuments || []).find(cv => cv.id === activeCVId);
         if (localCV?.parsed_content) {
           setCVContent(localCV.parsed_content);
           setIsLoadingCV(false);

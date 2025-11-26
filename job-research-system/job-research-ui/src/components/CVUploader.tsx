@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useUserStore } from '../store/userStore';
 import { useUIStore } from '../store/uiStore';
@@ -29,8 +29,10 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
 export function CVUploader() {
   const { isCVUploaderOpen, closeCVUploader, showAnalyzeJobsAlert } = useUIStore();
-  const { addCVDocument, setActiveCV, cvDocuments } = useUserStore();
+  const { addCVDocument, setActiveCV, cvDocuments, setCVDocuments } = useUserStore();
   const { filteredJobs, jobs: allJobs, loadJobs } = useJobStore();
+
+  console.log('🔍 CVUploader render - cvDocuments:', cvDocuments, 'length:', cvDocuments?.length, 'isArray:', Array.isArray(cvDocuments));
 
   const [view, setView] = useState<'select' | 'upload'>('select');
   const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'parsing' | 'success' | 'error'>('idle');
@@ -41,6 +43,31 @@ export function CVUploader() {
   const [fileMetadata, setFileMetadata] = useState<{ file_path: string; file_type: string; file_size: number } | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [, setSavingState] = useState<'idle' | 'saving' | 'analyzing' | 'success'>('idle');
+  const [loadingCVs, setLoadingCVs] = useState(false);
+
+  // Fetch CVs when modal opens
+  useEffect(() => {
+    if (isCVUploaderOpen) {
+      fetchCVDocuments();
+    }
+  }, [isCVUploaderOpen]);
+
+  const fetchCVDocuments = async () => {
+    try {
+      setLoadingCVs(true);
+      console.log('🔄 Fetching CVs from /cv/list...');
+      const response = await api.get('/cv/list');
+      console.log('📦 Raw API response:', response.data);
+      const cvs = response.data.cvs || [];
+      console.log(`📄 Extracted ${cvs.length} CVs:`, cvs);
+      setCVDocuments(cvs);
+      console.log('✅ CVs set in store');
+    } catch (error) {
+      console.error('❌ Failed to fetch CV documents:', error);
+    } finally {
+      setLoadingCVs(false);
+    }
+  };
 
   const resetState = () => {
     setView('select');
@@ -163,6 +190,13 @@ export function CVUploader() {
       });
 
       const data = response.data;
+      console.log('📦 CV save response:', data);
+
+      // Check if response has the expected structure
+      if (!data.cv || !data.cv.id) {
+        console.error('❌ Invalid response structure:', data);
+        throw new Error('Invalid response from server');
+      }
 
       // Update local store
       addCVDocument({
@@ -182,9 +216,11 @@ export function CVUploader() {
       
       setSavingState('success');
       
-      // Close modal
-      closeCVUploader();
-      resetState();
+      // Close modal after a short delay to show success state
+      setTimeout(() => {
+        closeCVUploader();
+        resetState();
+      }, 500);
 
       // Show analyze jobs alert
       const filteredCount = filteredJobs().length;
@@ -201,6 +237,7 @@ export function CVUploader() {
         },
       });
     } catch (err) {
+      console.error('❌ Failed to save CV:', err);
       setError(err instanceof Error ? err.message : 'Failed to save CV');
       setSavingState('idle');
     }
@@ -259,9 +296,18 @@ export function CVUploader() {
                 </div>
               </Button>
 
+              {/* Loading State */}
+              {loadingCVs && (
+                <div className="text-center py-8 text-muted-foreground">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2" />
+                  <p className="text-sm">Loading your CVs...</p>
+                </div>
+              )}
+
               {/* Existing CVs List */}
-              {cvDocuments.length > 0 && (
+              {!loadingCVs && Array.isArray(cvDocuments) && cvDocuments.length > 0 && (
                 <>
+                  {console.log('🎨 Rendering CV list, count:', cvDocuments.length, 'docs:', cvDocuments)}
                   <div className="relative">
                     <div className="absolute inset-0 flex items-center">
                       <span className="w-full border-t" />
@@ -274,7 +320,7 @@ export function CVUploader() {
                   </div>
 
                   <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                    {cvDocuments.map((cv) => (
+                    {(cvDocuments || []).map((cv) => (
                       <button
                         key={cv.id}
                         onClick={() => handleSelectExistingCV(cv.id)}
@@ -306,7 +352,7 @@ export function CVUploader() {
                 </>
               )}
 
-              {cvDocuments.length === 0 && (
+              {!loadingCVs && (!Array.isArray(cvDocuments) || cvDocuments.length === 0) && (
                 <div className="text-center py-8 text-muted-foreground">
                   <FileText className="h-12 w-12 mx-auto mb-2 opacity-50" />
                   <p className="text-sm">No CVs uploaded yet</p>

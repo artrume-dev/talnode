@@ -34,7 +34,7 @@ import {
 
 export function MainApp() {
   const { user, logout } = useAuth();
-  const { isOnboarded, profile, setOnboarded, setCVDocuments, setActiveCVId } = useUserStore();
+  const { isOnboarded, profile, setOnboarded, setCVDocuments, setActiveCVId, setProfile } = useUserStore();
   const { jobs, setJobs, selectedCompanies, selectedJob } = useJobStore();
   const {
     isCompanySelectorOpen,
@@ -56,6 +56,7 @@ export function MainApp() {
 
   // Load initial data
   useEffect(() => {
+    loadProfile();
     loadJobs();
     loadCVs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -74,6 +75,20 @@ export function MainApp() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOnboarded]);
+
+  const loadProfile = async () => {
+    try {
+      // Fetch user profile from API
+      const response = await api.get('/profile');
+      const profileData = response.data.profile;
+      if (profileData) {
+        setProfile(profileData);
+        console.log('👤 Loaded user profile:', profileData.full_name || 'Unknown');
+      }
+    } catch (err) {
+      console.error('❌ Failed to load profile:', err);
+    }
+  };
 
   const loadJobs = async () => {
     try {

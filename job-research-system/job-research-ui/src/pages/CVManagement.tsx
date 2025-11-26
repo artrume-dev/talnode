@@ -9,6 +9,7 @@ import api from '../services/api';
 import { FileText, CheckCircle, Upload, Trash2, Eye } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { useUserStore } from '../store/userStore';
+import { useUIStore } from '../store/uiStore';
 
 interface CVDocument {
   id: number;
@@ -22,6 +23,7 @@ interface CVDocument {
 
 export function CVManagement() {
   const { cvDocuments, setCVDocuments, setActiveCV, removeCVDocument } = useUserStore();
+  const { openCVUploader } = useUIStore();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -81,10 +83,7 @@ export function CVManagement() {
           <h1 className="text-2xl font-bold text-gray-900">CV Management</h1>
           <p className="text-sm text-gray-600 mt-1">Manage your uploaded CVs and resumes</p>
         </div>
-        <Button onClick={() => {
-          // TODO: Open CV upload modal
-          console.log('Upload new CV');
-        }}>
+        <Button onClick={() => openCVUploader()}>
           <Upload className="h-4 w-4 mr-2" />
           Upload New CV
         </Button>
@@ -108,7 +107,7 @@ export function CVManagement() {
             <div>
               <p className="text-sm text-gray-600">Active CV</p>
               <p className="text-sm font-medium text-gray-900 mt-1 truncate">
-                {cvDocuments.find(cv => cv.is_active)?.file_name || 'None'}
+                {(cvDocuments || []).find(cv => cv.is_active)?.file_name || 'None'}
               </p>
             </div>
             <div className="bg-green-50 text-green-600 p-3 rounded-lg">
@@ -121,7 +120,7 @@ export function CVManagement() {
             <div>
               <p className="text-sm text-gray-600">Total Size</p>
               <p className="text-2xl font-bold text-gray-900 mt-1">
-                {formatFileSize(cvDocuments.reduce((sum, cv) => sum + cv.file_size, 0))}
+                {formatFileSize((cvDocuments || []).reduce((sum, cv) => sum + cv.file_size, 0))}
               </p>
             </div>
             <div className="bg-purple-50 text-purple-600 p-3 rounded-lg">
@@ -133,7 +132,7 @@ export function CVManagement() {
 
       {/* CV List */}
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-        {cvDocuments.length === 0 ? (
+        {(cvDocuments || []).length === 0 ? (
           <div className="p-12 text-center">
             <div className="text-gray-400 mb-2">
               <FileText className="h-12 w-12 mx-auto" />
@@ -142,14 +141,14 @@ export function CVManagement() {
             <p className="text-sm text-gray-600 mb-4">
               Upload your first CV to start optimizing for jobs!
             </p>
-            <Button onClick={() => console.log('Upload CV')}>
+            <Button onClick={() => openCVUploader()}>
               <Upload className="h-4 w-4 mr-2" />
               Upload Your First CV
             </Button>
           </div>
         ) : (
           <div className="divide-y divide-gray-200">
-            {cvDocuments.map((cv) => (
+            {(cvDocuments || []).map((cv) => (
               <div
                 key={cv.id}
                 className={`p-6 hover:bg-gray-50 transition-colors ${

@@ -35,7 +35,7 @@ export interface CompanyWatch {
 }
 
 export class JobDatabase {
-  private db: Database.Database;
+  public db: Database.Database;
 
   constructor(dbPath?: string) {
     const path = dbPath || join(__dirname, '../../data/jobs.db');
@@ -148,6 +148,7 @@ export class JobDatabase {
     company?: string;
     priority?: string;
     minAlignment?: number;
+    user_id?: number;
   }): Job[] {
     let query = 'SELECT * FROM jobs WHERE 1=1';
     const params: any[] = [];
@@ -167,6 +168,10 @@ export class JobDatabase {
     if (filters?.minAlignment) {
       query += ' AND alignment_score >= ?';
       params.push(filters.minAlignment);
+    }
+    if (filters?.user_id) {
+      query += ' AND (user_id = ? OR user_id IS NULL)';
+      params.push(filters.user_id);
     }
 
     query += ' ORDER BY found_date DESC';
@@ -226,14 +231,17 @@ export class JobDatabase {
   // Custom companies operations
   getAllCompanies(userId?: number): any[] {
     if (userId) {
+      // Authenticated user: return their companies + shared companies (user_id IS NULL)
       return this.db.prepare(`
         SELECT * FROM custom_companies
         WHERE user_id = ? OR user_id IS NULL
         ORDER BY added_by_user ASC, company_name ASC
       `).all(userId);
     }
+    // Unauthenticated user: return only shared companies (user_id IS NULL)
     return this.db.prepare(`
       SELECT * FROM custom_companies
+      WHERE user_id IS NULL
       ORDER BY added_by_user ASC, company_name ASC
     `).all();
   }
@@ -247,14 +255,15 @@ export class JobDatabase {
     workday_id?: string;
     ashby_id?: string;
     smartrecruiters_id?: string;
+    user_id?: number;
   }): any {
     const result = this.db.prepare(`
       INSERT INTO custom_companies (
         company_name, careers_url, ats_type, 
         greenhouse_id, lever_id, workday_id, ashby_id, smartrecruiters_id,
-        is_active, added_by_user
+        is_active, added_by_user, user_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?)
     `).run(
       data.company_name,
       data.careers_url,
@@ -263,7 +272,8 @@ export class JobDatabase {
       data.lever_id || null,
       data.workday_id || null,
       data.ashby_id || null,
-      data.smartrecruiters_id || null
+      data.smartrecruiters_id || null,
+      data.user_id || null
     );
 
     return this.db.prepare('SELECT * FROM custom_companies WHERE id = ?').get(result.lastInsertRowid);
@@ -273,7 +283,7 @@ export class JobDatabase {
     return this.db.prepare('SELECT * FROM custom_companies WHERE id = ?').get(id);
   }
 
-  updateCustomCompany(id: number, updates: {
+  updateCustomCompany(id: number, userId: number, updates: {
     is_active?: boolean;
     company_name?: string;
     careers_url?: string;
@@ -303,19 +313,19 @@ export class JobDatabase {
       throw new Error('No fields to update');
     }
 
-    values.push(id);
-    this.db.prepare(`UPDATE custom_companies SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    values.push(id, userId);
+    this.db.prepare(`UPDATE custom_companies SET ${fields.join(', ')} WHERE id = ? AND (user_id = ? OR user_id IS NULL)`).run(...values);
 
     return this.db.prepare('SELECT * FROM custom_companies WHERE id = ?').get(id);
   }
 
-  deleteCustomCompany(id: number): void {
-    this.db.prepare('DELETE FROM custom_companies WHERE id = ? AND added_by_user = 1').run(id);
+  deleteCustomCompany(id: number, userId: number): void {
+    this.db.prepare('DELETE FROM custom_companies WHERE id = ? AND user_id = ? AND added_by_user = 1').run(id, userId);
   }
 
   // CV operations
-  deactivateAllCVs(userProfileId: number = 1): void {
-    this.db.prepare('UPDATE cv_documents SET is_active = 0 WHERE user_profile_id = ?').run(userProfileId);
+  deactivateAllCVs(userId: number): void {
+    this.db.prepare('UPDATE cv_documents SET is_active = 0 WHERE user_id = ?').run(userId);
   }
 
   saveCVDocument(data: {
@@ -326,17 +336,19 @@ export class JobDatabase {
     file_path: string;
     parsed_content: string;
     is_active?: boolean;
+    user_id?: number;
   }): any {
     const userProfileId = data.user_profile_id || 1;
+    const userId = data.user_id || null;
 
-    if (data.is_active !== false) {
-      this.deactivateAllCVs(userProfileId);
+    if (data.is_active !== false && userId) {
+      this.deactivateAllCVs(userId);
     }
 
     const result = this.db.prepare(`
       INSERT INTO cv_documents (
-        user_profile_id, file_name, file_type, file_size, file_path, parsed_content, is_active
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        user_profile_id, file_name, file_type, file_size, file_path, parsed_content, is_active, user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       userProfileId,
       data.file_name,
@@ -344,41 +356,66 @@ export class JobDatabase {
       data.file_size,
       data.file_path,
       data.parsed_content,
-      data.is_active !== false ? 1 : 0
+      data.is_active !== false ? 1 : 0,
+      userId
     );
 
     return this.db.prepare('SELECT * FROM cv_documents WHERE id = ?').get(result.lastInsertRowid);
   }
 
-  getCVDocuments(userProfileId: number = 1): any[] {
-    return this.db.prepare('SELECT * FROM cv_documents WHERE user_profile_id = ? ORDER BY uploaded_at DESC').all(userProfileId);
+  getCVDocuments(userId?: number): any[] {
+    if (userId) {
+      return this.db.prepare('SELECT * FROM cv_documents WHERE user_id = ? ORDER BY uploaded_at DESC').all(userId);
+    }
+    // Fallback for old data without user_id
+    return this.db.prepare('SELECT * FROM cv_documents ORDER BY uploaded_at DESC').all();
   }
 
-  getActiveCV(userProfileId: number = 1): any {
-    return this.db.prepare('SELECT * FROM cv_documents WHERE user_profile_id = ? AND is_active = 1').get(userProfileId);
+  getActiveCV(userId?: number): any {
+    if (userId) {
+      return this.db.prepare('SELECT * FROM cv_documents WHERE user_id = ? AND is_active = 1').get(userId);
+    }
+    // Fallback for old data without user_id
+    return this.db.prepare('SELECT * FROM cv_documents WHERE is_active = 1').get();
   }
 
-  setActiveCVDocument(cvId: number, userProfileId: number = 1): any {
-    this.deactivateAllCVs(userProfileId);
-    this.db.prepare('UPDATE cv_documents SET is_active = 1 WHERE id = ? AND user_profile_id = ?').run(cvId, userProfileId);
+  setActiveCVDocument(cvId: number, userId: number): any {
+    this.deactivateAllCVs(userId);
+    this.db.prepare('UPDATE cv_documents SET is_active = 1 WHERE id = ? AND user_id = ?').run(cvId, userId);
     return this.db.prepare('SELECT * FROM cv_documents WHERE id = ?').get(cvId);
   }
 
-  deleteCVDocument(cvId: number): void {
-    this.db.prepare('DELETE FROM cv_documents WHERE id = ?').run(cvId);
+  deleteCVDocument(cvId: number, userId?: number): void {
+    if (userId) {
+      this.db.prepare('DELETE FROM cv_documents WHERE id = ? AND user_id = ?').run(cvId, userId);
+    } else {
+      this.db.prepare('DELETE FROM cv_documents WHERE id = ?').run(cvId);
+    }
   }
 
-  getCVDocument(cvId: number): any {
+  getCVDocument(cvId: number, userId?: number): any {
+    if (userId) {
+      return this.db.prepare('SELECT * FROM cv_documents WHERE id = ? AND user_id = ?').get(cvId, userId);
+    }
     return this.db.prepare('SELECT * FROM cv_documents WHERE id = ?').get(cvId);
   }
 
-  updateCVContent(cvId: number, content: string): void {
-    const stmt = this.db.prepare(`
-      UPDATE cv_documents
-      SET parsed_content = ?
-      WHERE id = ?
-    `);
-    stmt.run(content, cvId);
+  updateCVContent(cvId: number, content: string, userId?: number): void {
+    if (userId) {
+      const stmt = this.db.prepare(`
+        UPDATE cv_documents
+        SET parsed_content = ?
+        WHERE id = ? AND user_id = ?
+      `);
+      stmt.run(content, cvId, userId);
+    } else {
+      const stmt = this.db.prepare(`
+        UPDATE cv_documents
+        SET parsed_content = ?
+        WHERE id = ?
+      `);
+      stmt.run(content, cvId);
+    }
   }
 
   // User Profile operations
@@ -395,7 +432,10 @@ export class JobDatabase {
     preferred_industries?: string;
     preferred_locations?: string;
     preferred_job_types?: string;
+    user_id?: number;
   }): any {
+    const userId = data.user_id || null;
+    
     // Check if default profile exists (id = 1)
     const existing = this.db.prepare('SELECT id FROM user_profiles WHERE id = 1').get();
 
@@ -415,6 +455,7 @@ export class JobDatabase {
           preferred_industries = ?,
           preferred_locations = ?,
           preferred_job_types = ?,
+          user_id = ?,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = 1
       `).run(
@@ -429,7 +470,8 @@ export class JobDatabase {
         data.education || null,
         data.preferred_industries || null,
         data.preferred_locations || null,
-        data.preferred_job_types || null
+        data.preferred_job_types || null,
+        userId
       );
 
       return this.db.prepare('SELECT * FROM user_profiles WHERE id = 1').get();
@@ -439,8 +481,8 @@ export class JobDatabase {
         INSERT INTO user_profiles (
           linkedin_url, full_name, headline, summary, current_position,
           years_of_experience, skills, experience, education,
-          preferred_industries, preferred_locations, preferred_job_types
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          preferred_industries, preferred_locations, preferred_job_types, user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         data.linkedin_url || null,
         data.full_name,
@@ -453,15 +495,21 @@ export class JobDatabase {
         data.education || null,
         data.preferred_industries || null,
         data.preferred_locations || null,
-        data.preferred_job_types || null
+        data.preferred_job_types || null,
+        userId
       );
 
       return this.db.prepare('SELECT * FROM user_profiles WHERE id = ?').get(result.lastInsertRowid);
     }
   }
 
-  getUserProfile(profileId: number = 1): any {
-    return this.db.prepare('SELECT * FROM user_profiles WHERE id = ?').get(profileId);
+  getUserProfile(userId?: number): any {
+    if (userId) {
+      // Query by user_id (from auth system)
+      return this.db.prepare('SELECT * FROM user_profiles WHERE user_id = ?').get(userId);
+    }
+    // Fallback to id=1 for old single-user data
+    return this.db.prepare('SELECT * FROM user_profiles WHERE id = ?').get(1);
   }
 
   updateUserProfile(profileId: number, updates: any): any {
@@ -471,7 +519,7 @@ export class JobDatabase {
     const allowedFields = [
       'linkedin_url', 'full_name', 'headline', 'summary', 'current_position',
       'years_of_experience', 'skills', 'experience', 'education',
-      'preferred_industries', 'preferred_locations', 'preferred_job_types'
+      'preferred_industries', 'preferred_locations', 'preferred_job_types', 'user_domains'
     ];
 
     for (const field of allowedFields) {
@@ -491,6 +539,193 @@ export class JobDatabase {
     this.db.prepare(`UPDATE user_profiles SET ${fields.join(', ')} WHERE id = ?`).run(...values);
 
     return this.db.prepare('SELECT * FROM user_profiles WHERE id = ?').get(profileId);
+  }
+
+  // Job Application operations
+  hasAppliedToJob(userId: number, jobId: number): boolean {
+    const result = this.db.prepare(`
+      SELECT COUNT(*) as count FROM job_applications 
+      WHERE user_id = ? AND job_id = ?
+    `).get(userId, jobId) as { count: number };
+    return result.count > 0;
+  }
+
+  createJobApplication(data: {
+    user_id: number;
+    job_id: number;
+    cv_variant_id?: number;
+    applied_date: string;
+    application_status?: string;
+    application_source?: string;
+    application_notes?: string;
+  }): any {
+    const result = this.db.prepare(`
+      INSERT INTO job_applications (
+        user_id, job_id, cv_variant_id, applied_date, 
+        application_status, application_source, application_notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      data.user_id,
+      data.job_id,
+      data.cv_variant_id || null,
+      data.applied_date,
+      data.application_status || 'applied',
+      data.application_source || null,
+      data.application_notes || null
+    );
+    return this.db.prepare('SELECT * FROM job_applications WHERE id = ?').get(result.lastInsertRowid);
+  }
+
+  getJobApplications(userId: number, filters?: { status?: string; limit?: number; page?: number }): any[] {
+    let query = 'SELECT * FROM job_applications WHERE user_id = ?';
+    const params: any[] = [userId];
+    
+    if (filters?.status) {
+      query += ' AND application_status = ?';
+      params.push(filters.status);
+    }
+    
+    query += ' ORDER BY applied_date DESC';
+    
+    if (filters?.limit) {
+      const limit = filters.limit;
+      const page = filters.page || 1;
+      const offset = (page - 1) * limit;
+      query += ' LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+    }
+    
+    return this.db.prepare(query).all(...params);
+  }
+
+  getJobApplicationsCount(userId: number): any {
+    const total = this.db.prepare(`
+      SELECT COUNT(*) as count FROM job_applications WHERE user_id = ?
+    `).get(userId) as { count: number };
+    
+    const applied = this.db.prepare(`
+      SELECT COUNT(*) as count FROM job_applications WHERE user_id = ? AND application_status = 'applied'
+    `).get(userId) as { count: number };
+    
+    const in_review = this.db.prepare(`
+      SELECT COUNT(*) as count FROM job_applications WHERE user_id = ? AND application_status = 'in_review'
+    `).get(userId) as { count: number };
+    
+    const interview = this.db.prepare(`
+      SELECT COUNT(*) as count FROM job_applications WHERE user_id = ? AND application_status = 'interview'
+    `).get(userId) as { count: number };
+    
+    const accepted = this.db.prepare(`
+      SELECT COUNT(*) as count FROM job_applications WHERE user_id = ? AND application_status = 'accepted'
+    `).get(userId) as { count: number };
+    
+    const rejected = this.db.prepare(`
+      SELECT COUNT(*) as count FROM job_applications WHERE user_id = ? AND application_status = 'rejected'
+    `).get(userId) as { count: number };
+    
+    return {
+      total: total.count,
+      applied: applied.count,
+      in_review: in_review.count,
+      interview: interview.count,
+      accepted: accepted.count,
+      rejected: rejected.count
+    };
+  }
+
+  getJobApplication(applicationId: number, userId: number): any {
+    return this.db.prepare(`
+      SELECT * FROM job_applications 
+      WHERE id = ? AND user_id = ?
+    `).get(applicationId, userId);
+  }
+
+  updateJobApplication(applicationId: number, userId: number, updates: any): any {
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    const allowedFields = [
+      'application_status', 'application_notes', 'follow_up_date',
+      'interview_date', 'interview_notes', 'offer_amount', 'offer_currency',
+      'decision', 'decision_date', 'rejection_reason'
+    ];
+
+    for (const field of allowedFields) {
+      if (updates[field] !== undefined) {
+        fields.push(`${field} = ?`);
+        values.push(updates[field]);
+      }
+    }
+
+    if (fields.length === 0) {
+      throw new Error('No fields to update');
+    }
+
+    fields.push('updated_at = CURRENT_TIMESTAMP');
+    values.push(applicationId, userId);
+
+    this.db.prepare(`
+      UPDATE job_applications 
+      SET ${fields.join(', ')} 
+      WHERE id = ? AND user_id = ?
+    `).run(...values);
+
+    return this.getJobApplication(applicationId, userId);
+  }
+
+  deleteJobApplication(applicationId: number, userId: number): void {
+    this.db.prepare(`
+      DELETE FROM job_applications 
+      WHERE id = ? AND user_id = ?
+    `).run(applicationId, userId);
+  }
+
+  getRecentJobApplications(userId: number, limit: number = 5): any[] {
+    return this.db.prepare(`
+      SELECT * FROM job_applications 
+      WHERE user_id = ? 
+      ORDER BY applied_date DESC 
+      LIMIT ?
+    `).all(userId, limit);
+  }
+
+  // Dashboard operations
+  getDashboardStats(userId: number): any {
+    const totalJobs = this.db.prepare(`
+      SELECT COUNT(*) as count FROM jobs 
+      WHERE user_id = ? OR user_id IS NULL
+    `).get(userId) as { count: number };
+
+    const appliedJobs = this.db.prepare(`
+      SELECT COUNT(*) as count FROM job_applications 
+      WHERE user_id = ?
+    `).get(userId) as { count: number };
+
+    const interviews = this.db.prepare(`
+      SELECT COUNT(*) as count FROM job_applications 
+      WHERE user_id = ? AND application_status = 'interview'
+    `).get(userId) as { count: number };
+
+    const offers = this.db.prepare(`
+      SELECT COUNT(*) as count FROM job_applications 
+      WHERE user_id = ? AND application_status = 'offer'
+    `).get(userId) as { count: number };
+
+    return {
+      total_jobs: totalJobs.count,
+      applied_jobs: appliedJobs.count,
+      interviews: interviews.count,
+      offers: offers.count
+    };
+  }
+
+  getRecentCVOptimizations(userId: number, limit: number = 5): any[] {
+    return this.db.prepare(`
+      SELECT * FROM cv_variants 
+      WHERE user_id = ? 
+      ORDER BY created_at DESC 
+      LIMIT ?
+    `).all(userId, limit);
   }
 
   close() {

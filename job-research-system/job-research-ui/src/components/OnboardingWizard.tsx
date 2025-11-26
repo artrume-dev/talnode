@@ -6,6 +6,7 @@ import api from '../services/api';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+import { DomainSelector } from './DomainSelector';
 import { Checkbox } from './ui/checkbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
@@ -64,6 +65,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
   const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
   const [selectedJobTypes, setSelectedJobTypes] = useState<string[]>([]);
+  const [selectedDomains, setSelectedDomains] = useState<string[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
   const [isSearchingJobs, setIsSearchingJobs] = useState(false);
@@ -83,10 +85,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const { updateProfile, setOnboarded, cvDocuments, activeCVId, setCVDocuments, setActiveCVId, profile } = useUserStore();
   const { openCVUploader } = useUIStore();
 
-  const totalSteps = 7;
+  const totalSteps = 8; // Added domain selection step
   
   // Get the active CV or the most recently uploaded one
-  const activeCV = cvDocuments.find(cv => cv.id === activeCVId) || cvDocuments[cvDocuments.length - 1];
+  // Ensure cvDocuments is actually an array (not null, undefined, or other type)
+  const safeCVDocuments = Array.isArray(cvDocuments) ? cvDocuments : [];
+  const activeCV = safeCVDocuments.find(cv => cv.id === activeCVId) || safeCVDocuments[safeCVDocuments.length - 1];
   
   // Pre-fill profile data from existing profile when wizard opens
   useEffect(() => {
@@ -125,6 +129,15 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           setSelectedJobTypes(jobTypes);
         } catch (e) {
           console.error('Failed to parse job types:', e);
+        }
+      }
+      
+      if (profile.user_domains) {
+        try {
+          const domains = JSON.parse(profile.user_domains);
+          setSelectedDomains(domains);
+        } catch (e) {
+          console.error('Failed to parse domains:', e);
         }
       }
     }
@@ -188,6 +201,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         preferred_industries: JSON.stringify(selectedIndustries),
         preferred_locations: JSON.stringify(selectedLocations),
         preferred_job_types: JSON.stringify(selectedJobTypes),
+        user_domains: JSON.stringify(selectedDomains),
       };
 
       const response = await api.post('/profile/save', profileUpdate);
@@ -263,10 +277,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
       case 4:
         return selectedJobTypes.length > 0;
       case 5:
-        return true; // CV upload is optional
+        return true; // Domain selection is optional
       case 6:
-        return true; // LinkedIn is optional
+        return true; // CV upload is optional
       case 7:
+        return true; // LinkedIn is optional
+      case 8:
         return profileData.full_name.trim() !== '';
       default:
         return false;
@@ -427,7 +443,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                       if (selectedCompanies.length === companies.length) {
                         setSelectedCompanies([]);
                       } else {
-                        setSelectedCompanies([...companies]);
+                        setSelectedCompanies(companies.map(c => c.company_name));
                       }
                     }}
                   >
@@ -449,25 +465,25 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-96 overflow-y-auto p-1">
                     {companies.map((company) => (
                       <div
-                        key={company}
-                        onClick={() => toggleSelection(company, selectedCompanies, setSelectedCompanies)}
+                        key={company.id}
+                        onClick={() => toggleSelection(company.company_name, selectedCompanies, setSelectedCompanies)}
                         className={`p-3 border rounded-lg cursor-pointer transition-all ${
-                          selectedCompanies.includes(company)
+                          selectedCompanies.includes(company.company_name)
                             ? 'border-primary bg-primary/10'
                             : 'border-border hover:border-primary/50'
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          <Checkbox checked={selectedCompanies.includes(company)} />
-                          <span className="text-sm">{company}</span>
+                          <Checkbox checked={selectedCompanies.includes(company.company_name)} />
+                          <span className="text-sm">{company.company_name}</span>
                         </div>
                       </div>
                     ))}
                   </div>
                   <div className="flex flex-wrap gap-2 mt-4">
-                    {selectedCompanies.map((company) => (
-                      <Badge key={company} variant="default">
-                        {company}
+                    {selectedCompanies.map((companyName) => (
+                      <Badge key={companyName} variant="default">
+                        {companyName}
                       </Badge>
                     ))}
                   </div>
@@ -578,8 +594,23 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             </div>
           )}
 
-          {/* Step 5: CV Upload */}
+          {/* Step 5: Domain Expertise */}
           {step === 5 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-lg font-semibold mb-4">
+                <Briefcase className="h-5 w-5 text-primary" />
+                <h3>Select Your Domain Expertise</h3>
+              </div>
+
+              <DomainSelector
+                selectedDomains={selectedDomains}
+                onDomainsChange={setSelectedDomains}
+              />
+            </div>
+          )}
+
+          {/* Step 6: CV Upload */}
+          {step === 6 && (
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-lg font-semibold">
                 <Upload className="h-5 w-5 text-primary" />
@@ -589,7 +620,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 Upload your CV to get personalized job matching and AI-powered CV optimization
               </p>
               
-              {cvDocuments.length > 0 && activeCV ? (
+              {safeCVDocuments.length > 0 && activeCV ? (
                 // Success State - CV Uploaded
                 <div className="border-2 border-green-500 bg-green-50 dark:bg-green-950/20 rounded-lg p-8 text-center space-y-4">
                   <div className="flex justify-center">
@@ -630,8 +661,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             </div>
           )}
 
-          {/* Step 6: LinkedIn Profile */}
-          {step === 6 && (
+          {/* Step 7: LinkedIn Profile */}
+          {step === 7 && (
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-lg font-semibold">
                 <Linkedin className="h-5 w-5 text-primary" />
@@ -716,8 +747,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             </div>
           )}
 
-          {/* Step 7: Profile Details */}
-          {step === 7 && (
+          {/* Step 8: Profile Details */}
+          {step === 8 && (
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-lg font-semibold">
                 <User className="h-5 w-5 text-primary" />

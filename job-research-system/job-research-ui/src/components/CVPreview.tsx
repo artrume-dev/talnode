@@ -26,7 +26,8 @@ export function CVPreview() {
   const [editedContent, setEditedContent] = useState('');
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
-  const activeCV = cvDocuments.find(cv => cv.id === activeCVId);
+  // Ensure cvDocuments is an array before using .find()
+  const activeCV = Array.isArray(cvDocuments) ? cvDocuments.find(cv => cv.id === activeCVId) : undefined;
   const targetJob = selectedJob();
 
   const handleEdit = () => {

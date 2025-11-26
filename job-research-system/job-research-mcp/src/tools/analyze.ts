@@ -1,5 +1,7 @@
 import { JobDatabase, Job } from '../db/schema.js';
 import { readFileSync } from 'fs';
+import { domainMatcher, DomainMatchResult } from '../domains/domain-matcher.js';
+import { getDomainNames } from '../domains/domain-registry.js';
 
 export interface AlignmentResult {
   job_id: string;
@@ -21,7 +23,8 @@ export function analyzeJobFit(
   jobId: string,
   cvPath?: string,
   cvId?: number,
-  preferredIndustries?: string[]
+  preferredIndustries?: string[],
+  userId?: number
 ): AlignmentResult {
   const job = db.getJobById(jobId);
 
@@ -34,9 +37,8 @@ export function analyzeJobFit(
 
   if (cvId) {
     // Get CV from database
-    // TODO: Pass actual user_id when available from context
     try {
-      const cv = db.getCVDocument(cvId, 1);
+      const cv = db.getCVDocument(cvId, userId);
       if (cv && cv.parsed_content) {
         cvContent = cv.parsed_content;
       } else {
@@ -54,9 +56,8 @@ export function analyzeJobFit(
     }
   } else {
     // Try to get active CV if no CV specified
-    // TODO: Pass actual user_id when available from context
     try {
-      const activeCV = db.getActiveCV(1);
+      const activeCV = db.getActiveCV(userId);
       if (activeCV && activeCV.parsed_content) {
         cvContent = activeCV.parsed_content;
       }
@@ -65,8 +66,52 @@ export function analyzeJobFit(
     }
   }
 
-  // Calculate alignment based on keywords and requirements
-  const result = calculateAlignment(job, cvContent, preferredIndustries);
+  // NEW: Get user's selected domains for domain-based matching
+  const userProfile = userId ? db.getUserProfile(userId) : null;
+  const userDomains = userProfile?.user_domains 
+    ? JSON.parse(userProfile.user_domains) 
+    : [];
+
+  // NEW: Domain-based matching (if user has domains configured)
+  let domainMatch: DomainMatchResult | undefined;
+  
+  if (userDomains.length > 0) {
+    const jobDomains = domainMatcher.detectJobDomains(job.title, job.description || '');
+    
+    if (jobDomains.length > 0) {
+      domainMatch = domainMatcher.matchUserDomains(cvContent, userDomains, jobDomains);
+      
+      // IMPROVED: Apply score cap for significant domain mismatches
+      // Cap score if more than 50% of job domains are mismatched
+      const mismatchRatio = domainMatch.mismatchedDomains.length / domainMatch.jobDomains.length;
+      
+      if (mismatchRatio > 0.5 && domainMatch.matchedDomains.length === 0) {
+        // Major mismatch: more than half domains missing and no direct matches
+        const result: AlignmentResult = {
+          job_id: job.job_id,
+          company: job.company,
+          title: job.title,
+          alignment_score: Math.min(domainMatch.alignmentScore, 35),
+          strong_matches: domainMatch.transferableSkills.length > 0 
+            ? [`🔄 Transferable: ${domainMatch.transferableSkills.join(', ')}`]
+            : [],
+          gaps: domainMatch.mismatchedDomains.map(id => {
+            const domainNames = getDomainNames([id]);
+            return `Missing: ${domainNames.join(', ')} experience`;
+          }),
+          recommendation: 'low',
+          reasoning: domainMatch.reasoning,
+        };
+        
+        // Update database
+        db.updateAlignmentScore(jobId, result.alignment_score, result.strong_matches, result.gaps);
+        return result;
+      }
+    }
+  }
+
+  // Calculate alignment based on keywords and requirements, passing domain match info
+  const result = calculateAlignment(job, cvContent, preferredIndustries, userDomains, domainMatch);
 
   // Update alignment score in database with strong matches and gaps
   db.updateAlignmentScore(jobId, result.alignment_score, result.strong_matches, result.gaps);
@@ -345,6 +390,27 @@ function detectDomainMismatch(jobText: string, cv: string): {
       ],
       domainName: 'sales experience',
       requiredCount: 2
+    },
+    security_grc: {
+      keywords: [
+        'grc', 'governance risk compliance', 'security grc', 'grc specialist',
+        'compliance framework', 'soc 2', 'soc2', 'iso 27001', 'iso27001',
+        'nist', 'gdpr compliance', 'hipaa', 'pci dss', 'fedramp',
+        'security audit', 'compliance audit', 'risk assessment', 'control testing',
+        'security controls', 'compliance controls', 'audit framework',
+        'risk management framework', 'third-party risk', 'vendor risk',
+        'security questionnaire', 'compliance certification', 'audit evidence',
+        'policy compliance', 'security policy', 'compliance program'
+      ],
+      cvKeywords: [
+        'grc', 'governance', 'compliance', 'security audit', 'risk assessment',
+        'soc 2', 'soc2', 'iso 27001', 'iso27001', 'nist', 'audit',
+        'compliance framework', 'risk management', 'security controls',
+        'fedramp', 'gdpr', 'hipaa', 'pci dss', 'security certification',
+        'vendor risk', 'third-party risk', 'compliance program'
+      ],
+      domainName: 'security GRC/compliance experience',
+      requiredCount: 3
     }
   };
 
@@ -395,13 +461,54 @@ function detectDomainMismatch(jobText: string, cv: string): {
   };
 }
 
-function calculateAlignment(job: Job, cvContent: string, preferredIndustries?: string[]): AlignmentResult {
+function calculateAlignment(
+  job: Job, 
+  cvContent: string, 
+  preferredIndustries?: string[], 
+  userDomains?: string[],
+  domainMatch?: DomainMatchResult
+): AlignmentResult {
   const strongMatches: string[] = [];
   const gaps: string[] = [];
   let score = 0;
+  let domainReasoning = '';
 
   const jobText = `${job.title} ${job.description || ''} ${job.requirements || ''}`.toLowerCase();
   const cv = cvContent.toLowerCase();
+
+  // NEW: Add comprehensive domain match info if available
+  if (domainMatch) {
+    // Add matched domains to strong matches
+    if (domainMatch.matchedDomains.length > 0) {
+      const matchedNames = getDomainNames(domainMatch.matchedDomains);
+      strongMatches.push(`🎯 Domain match: ${matchedNames.join(', ')}`);
+      score += 15; // Bonus for direct domain match
+    }
+    
+    // Add transferable skills to strong matches
+    if (domainMatch.transferableSkills.length > 0) {
+      strongMatches.push(`🔄 Transferable: ${domainMatch.transferableSkills.join(', ')}`);
+      score += 10; // Bonus for transferable skills
+    }
+    
+    // Add mismatched domains to gaps
+    if (domainMatch.mismatchedDomains.length > 0) {
+      const mismatchedNames = getDomainNames(domainMatch.mismatchedDomains);
+      gaps.push(...mismatchedNames.map(name => `Missing: ${name} experience`));
+    }
+    
+    // Preserve domain reasoning
+    if (domainMatch.reasoning) {
+      domainReasoning = domainMatch.reasoning;
+    }
+    
+    // Apply score cap for significant domain mismatches
+    const mismatchRatio = domainMatch.mismatchedDomains.length / domainMatch.jobDomains.length;
+    if (mismatchRatio > 0.5) {
+      // More than 50% of job domains are mismatched
+      score = Math.min(score, 35);
+    }
+  }
 
   // Check if job has sufficient information for analysis
   const hasDescription = job.description && job.description.trim().length > 20;
@@ -440,18 +547,20 @@ function calculateAlignment(job: Job, cvContent: string, preferredIndustries?: s
     };
   }
 
-  // NEW: Detect job domain from title and apply domain-based scoring adjustment
-  const jobDomains = detectJobDomain(job.title, jobText);
-  const domainAlignment = calculateDomainAlignment(jobDomains, preferredIndustries);
-
-  // Track domain match info
-  if (domainAlignment.reasoning) {
-    if (domainAlignment.isMatch) {
-      strongMatches.push(domainAlignment.reasoning);
-    } else {
-      gaps.push(domainAlignment.reasoning);
-    }
-  }
+  // OLD: Legacy domain detection - DISABLED in favor of new domain matching system
+  // The new domain matching system (lines 75-111) handles domain alignment more accurately
+  // This old logic was giving false positives (e.g., matching "AI/ML" for marketing CVs)
+  // const jobDomains = detectJobDomain(job.title, jobText);
+  // const domainAlignment = calculateDomainAlignment(jobDomains, preferredIndustries);
+  
+  // Disabled: Track domain match info
+  // if (domainAlignment.reasoning) {
+  //   if (domainAlignment.isMatch) {
+  //     strongMatches.push(domainAlignment.reasoning);
+  //   } else {
+  //     gaps.push(domainAlignment.reasoning);
+  //   }
+  // }
 
   // Check for strong experience matches - Expanded keyword dictionary
   const experienceKeywords = {
@@ -671,8 +780,9 @@ function calculateAlignment(job: Job, cvContent: string, preferredIndustries?: s
     ? Math.min(Math.round((score / maxPossibleScore) * 100), 100)
     : 0;
 
-  // Apply domain alignment adjustment
-  alignmentScore = Math.max(0, Math.min(100, alignmentScore + domainAlignment.adjustment));
+  // OLD: Apply domain alignment adjustment - DISABLED (was causing false positives)
+  // Domain alignment is now handled by the new domain matching system (lines 479-511)
+  // alignmentScore = Math.max(0, Math.min(100, alignmentScore + domainAlignment.adjustment));
 
   // Determine recommendation with clearer thresholds
   let recommendation: 'high' | 'medium' | 'low';
@@ -690,6 +800,11 @@ function calculateAlignment(job: Job, cvContent: string, preferredIndustries?: s
   } else {
     recommendation = 'low';
     reasoning = `Very low alignment (${alignmentScore}%). Fundamental domain mismatch detected. DO NOT APPLY - this role requires experience you don't have. Optimizing CV for this role may lead to fabricated content.`;
+  }
+
+  // Prepend domain reasoning if available
+  if (domainReasoning) {
+    reasoning = domainReasoning + ' ' + reasoning;
   }
 
   return {
@@ -712,12 +827,13 @@ export function batchAnalyzeJobs(
   jobIds: string[],
   cvPath?: string,
   cvId?: number,
-  preferredIndustries?: string[]
+  preferredIndustries?: string[],
+  userId?: number
 ): AlignmentResult[] {
   return jobIds
     .map(id => {
       try {
-        return analyzeJobFit(db, id, cvPath, cvId, preferredIndustries);
+        return analyzeJobFit(db, id, cvPath, cvId, preferredIndustries, userId);
       } catch (error) {
         console.error(`Error analyzing job ${id}:`, error);
         return null;
