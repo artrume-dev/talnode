@@ -6,8 +6,7 @@
 
 import { useEffect, useState } from 'react';
 import axios from 'axios';
-import { ExternalLink, Pencil, Trash2, Filter } from 'lucide-react';
-import { Button } from '../components/ui/button';
+import { ExternalLink, Pencil, Trash2, Filter, Briefcase } from 'lucide-react';
 
 interface Application {
   id: number;

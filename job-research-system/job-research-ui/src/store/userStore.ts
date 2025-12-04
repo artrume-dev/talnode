@@ -17,6 +17,7 @@ interface UserProfile {
   preferred_industries?: string; // JSON array of industries
   preferred_locations?: string; // JSON array of locations
   preferred_job_types?: string; // JSON array of job types
+  user_domains?: string; // JSON array of domain IDs
   created_at?: string;
   updated_at?: string;
 }

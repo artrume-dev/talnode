@@ -6,6 +6,7 @@
  * This server provides a REST API interface with file upload support.
  */
 
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
@@ -33,6 +34,7 @@ import { authenticateUser, optionalAuth } from './auth/middleware.js';
 import { createDashboardRoutes } from './routes/dashboard.js';
 import { createApplicationsRoutes } from './routes/applications.js';
 import { getAllDomains, DOMAIN_CATEGORIES } from './domains/domain-registry.js';
+import { LLMJobAnalyzer } from './services/llm-analyzer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -42,7 +44,23 @@ const db = new JobDatabase();
 const app = express();
 
 // Middleware
-app.use(cors());
+// CORS configuration - allow localhost ports for frontend dev servers
+app.use(cors({
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:5175',
+    'http://localhost:5176',
+    'http://localhost:5177',
+    'http://localhost:5178',
+    'http://localhost:5179',
+    'http://localhost:5180',
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 app.use(express.json());
 
 // Ensure uploads directory exists
@@ -660,6 +678,225 @@ app.post('/api/tools/get_jobs_needing_attention', (_req, res) => {
     res.json(result);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// AI-based job analysis with LLM (GPT-4o Mini) - with streaming progress
+// Note: This route needs to handle streaming, so we parse body manually if needed
+app.post('/api/jobs/ai-analyze', authenticateUser, async (req, res) => {
+  // For streaming requests, we need to ensure no buffering
+  const { job_id, cv_id, stream } = req.body;
+  const user_id = req.user?.userId || 1;
+  
+  console.log('[AI Analysis] Request:', { job_id, cv_id, stream, user_id });
+
+  try {
+    console.log('[AI Analysis] Request received:', { body: req.body, user: req.user });
+
+    if (!job_id || !cv_id) {
+      console.log('[AI Analysis] Missing required parameters');
+      return res.status(400).json({ error: 'job_id and cv_id are required' });
+    }
+
+    // Check if OpenAI API key is configured
+    if (!process.env.OPENAI_API_KEY) {
+      console.log('[AI Analysis] OpenAI API key not configured');
+      return res.status(500).json({
+        error: 'OpenAI API key not configured. Please set OPENAI_API_KEY in .env file.'
+      });
+    }
+
+    // If streaming is requested, use Server-Sent Events
+    if (stream === true) {
+      console.log('[SSE] Starting streaming response for job_id:', job_id, 'cv_id:', cv_id);
+      
+      // IMPORTANT: Set headers BEFORE any writes, and disable Express buffering
+      // Get origin from request headers for CORS
+      const origin = req.headers.origin;
+      const allowedOrigins = [
+        'http://localhost:3000',
+        'http://localhost:5173',
+        'http://localhost:5174',
+        'http://localhost:5175',
+        'http://localhost:5176',
+        'http://localhost:5177',
+        'http://localhost:5178',
+        'http://localhost:5179',
+        'http://localhost:5180',
+      ];
+      
+      // Set all headers first
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+      
+      if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+      } else {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+      }
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+
+      // Flush headers immediately to start the stream
+      if (res.flushHeaders) {
+        res.flushHeaders();
+      }
+
+      // Send initial connection message
+      res.write(': connected\n\n');
+      
+      // Send a test step immediately to verify connection
+      const testStep = {
+        type: 'info' as const,
+        message: 'Stream connection established. Starting analysis...',
+        timestamp: Date.now(),
+      };
+      const testData = `data: ${JSON.stringify(testStep)}\n\n`;
+      console.log('[SSE] Sending test step:', testData.substring(0, 100));
+      res.write(testData);
+      
+      // Force flush after test step
+      if (typeof (res as any).flush === 'function') {
+        (res as any).flush();
+      }
+
+      // Create analyzer instance with progress callback
+      const analyzer = new LLMJobAnalyzer(db, process.env.OPENAI_API_KEY);
+      
+      let stepCount = 0;
+      analyzer.setProgressCallback((step) => {
+        stepCount++;
+        const data = `data: ${JSON.stringify(step)}\n\n`;
+        console.log(`[SSE] Sending step #${stepCount}:`, step.type, step.message);
+        
+        try {
+          const written = res.write(data);
+          console.log(`[SSE] Write result for step #${stepCount}:`, written);
+          
+          // Flush the response to ensure data is sent immediately
+          if (typeof (res as any).flush === 'function') {
+            (res as any).flush();
+            console.log(`[SSE] Flushed step #${stepCount}`);
+          } else if (res.flushHeaders) {
+            // Express 5.x uses flushHeaders
+            res.flushHeaders();
+            console.log(`[SSE] FlushHeaders called for step #${stepCount}`);
+          }
+        } catch (writeError) {
+          console.error('[SSE] Error writing step:', writeError);
+        }
+      });
+
+      // Analyze job (progress will be streamed via callback)
+      try {
+        const result = await analyzer.analyzeJob(job_id, cv_id, user_id);
+        
+        // Ensure all previous writes are flushed before sending final result
+        if (typeof (res as any).flush === 'function') {
+          (res as any).flush();
+        }
+        
+        // Send final result
+        const finalResult = {
+          type: 'result',
+          data: result,
+          timestamp: Date.now(),
+        };
+        
+        console.log('[SSE] Sending final result:', finalResult.type);
+        res.write(`data: ${JSON.stringify(finalResult)}\n\n`);
+        
+        // Flush again before ending
+        if (typeof (res as any).flush === 'function') {
+          (res as any).flush();
+        }
+        
+        // Small delay to ensure data is sent
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        res.end();
+      } catch (error: any) {
+        res.write(`data: ${JSON.stringify({
+          type: 'error',
+          message: error.message || 'Failed to analyze job',
+          timestamp: Date.now(),
+        })}\n\n`);
+        res.end();
+      }
+    } else {
+      // Non-streaming mode (backward compatibility)
+      console.log('[AI Analysis] Creating analyzer instance...');
+      const analyzer = new LLMJobAnalyzer(db, process.env.OPENAI_API_KEY);
+
+      console.log('[AI Analysis] Starting job analysis...');
+      const result = await analyzer.analyzeJob(job_id, cv_id, user_id);
+
+      console.log('[AI Analysis] Analysis complete, sending response');
+      res.json({
+        success: true,
+        analysis: result
+      });
+    }
+  } catch (error: any) {
+    console.error('[AI Analysis] ERROR:', error);
+    console.error('[AI Analysis] ERROR Stack:', error.stack);
+    console.error('[AI Analysis] ERROR Message:', error.message);
+    
+    if (stream === true) {
+      res.write(`data: ${JSON.stringify({
+        type: 'error',
+        message: error.message || 'Failed to analyze job with AI',
+        timestamp: Date.now(),
+      })}\n\n`);
+      res.end();
+    } else {
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Failed to analyze job with AI'
+      });
+    }
+  }
+});
+
+// Record user feedback for AI analysis (for RLHF training data)
+app.post('/api/jobs/ai-analyze/feedback', authenticateUser, (req, res) => {
+  try {
+    const { analysis_id, rating, was_helpful, feedback_text, actual_outcome, outcome_notes } = req.body;
+
+    if (!analysis_id) {
+      return res.status(400).json({ error: 'analysis_id is required' });
+    }
+
+    // Check if OpenAI API key is configured
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(500).json({
+        error: 'OpenAI API key not configured'
+      });
+    }
+
+    const analyzer = new LLMJobAnalyzer(db, process.env.OPENAI_API_KEY);
+
+    analyzer.recordUserFeedback(analysis_id, {
+      rating,
+      wasHelpful: was_helpful,
+      feedbackText: feedback_text,
+      actualOutcome: actual_outcome,
+      outcomeNotes: outcome_notes,
+    });
+
+    res.json({
+      success: true,
+      message: 'Feedback recorded successfully'
+    });
+  } catch (error: any) {
+    console.error('AI feedback error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to record feedback'
+    });
   }
 });
 

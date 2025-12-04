@@ -98,7 +98,7 @@ export function ScoreBreakdownDialog({ job, open, onOpenChange }: ScoreBreakdown
               </h3>
             </div>
             <div className="flex flex-wrap gap-2">
-              {strongMatches.map((match, index) => (
+              {strongMatches.map((match: string, index: number) => (
                 <Badge
                   key={index}
                   variant="secondary"
@@ -124,7 +124,7 @@ export function ScoreBreakdownDialog({ job, open, onOpenChange }: ScoreBreakdown
               </h3>
             </div>
             <div className="flex flex-wrap gap-2">
-              {gaps.map((gap, index) => (
+              {gaps.map((gap: string, index: number) => (
                 <Badge
                   key={index}
                   variant="secondary"

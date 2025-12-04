@@ -5,21 +5,11 @@
  */
 
 import { useEffect, useState } from 'react';
-import api from '../services/api';
+import api, { del } from '../services/api';
 import { FileText, CheckCircle, Upload, Trash2, Eye } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { useUserStore } from '../store/userStore';
 import { useUIStore } from '../store/uiStore';
-
-interface CVDocument {
-  id: number;
-  file_name: string;
-  file_type: string;
-  file_size: number;
-  is_active: boolean;
-  uploaded_at: string;
-  parsed_content?: string;
-}
 
 export function CVManagement() {
   const { cvDocuments, setCVDocuments, setActiveCV, removeCVDocument } = useUserStore();
@@ -54,7 +44,7 @@ export function CVManagement() {
     if (!confirm('Are you sure you want to delete this CV?')) return;
 
     try {
-      await api.del(`/cv/${id}`);
+      await del(`/cv/${id}`);
       removeCVDocument(id);
     } catch (error) {
       console.error('❌ Error deleting CV:', error);

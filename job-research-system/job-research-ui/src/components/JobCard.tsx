@@ -1,20 +1,26 @@
 import { useState } from 'react';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Building2, MapPin, ExternalLink, Sparkles, Info } from 'lucide-react';
+import { Building2, MapPin, ExternalLink, Info, Sparkles } from 'lucide-react';
 import { ScoreBreakdownDialog } from './ScoreBreakdownDialog';
+import { AIJobAnalysisModal } from './AIJobAnalysisModal';
+import { analyzeJobWithAI, type ReasoningStep } from '../services/api';
+import type { AIJobAnalysisResult } from '../services/api';
 import type { Job } from '../types';
 
 interface JobCardProps {
   job: Job;
-  onOptimizeCV?: (job: Job) => void;
   isSelected?: boolean;
   onSelect?: (job: Job) => void;
 }
 
-export function JobCard({ job, onOptimizeCV, isSelected = false, onSelect }: JobCardProps) {
+export function JobCard({ job, isSelected = false, onSelect }: JobCardProps) {
   const [showScoreDialog, setShowScoreDialog] = useState(false);
-  
+  const [showAIAnalysisModal, setShowAIAnalysisModal] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState<AIJobAnalysisResult | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [reasoningSteps, setReasoningSteps] = useState<ReasoningStep[]>([]);
+
   // Get job type from location/remote field
   const workType = job.remote ? 'Remote' : 'Hybrid';
   const location = job.location || 'London, UK';
@@ -43,13 +49,6 @@ export function JobCard({ job, onOptimizeCV, isSelected = false, onSelect }: Job
     }
   };
 
-  const handleOptimizeClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (onOptimizeCV) {
-      onOptimizeCV(job);
-    }
-  };
-
   const handleViewJobClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     window.open(job.url, '_blank');
@@ -60,12 +59,92 @@ export function JobCard({ job, onOptimizeCV, isSelected = false, onSelect }: Job
     setShowScoreDialog(true);
   };
 
+  const handleAIAnalysisClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    // Get active CV ID from localStorage or default to 1
+    const activeCVId = parseInt(localStorage.getItem('active_cv_id') || '1');
+
+    setShowAIAnalysisModal(true);
+    setIsAnalyzing(true);
+    setReasoningSteps([]); // Clear previous steps
+    setAiAnalysis(null); // Clear previous analysis
+
+    try {
+      console.log('🚀 Starting AI analysis with streaming...', { jobId: job.id, cvId: activeCVId });
+      
+      // Try streaming first
+      try {
+        const analysis = await analyzeJobWithAI(Number(job.id), activeCVId, (step) => {
+          console.log('📊 Progress step received in JobCard:', {
+            type: step.type,
+            message: step.message || 'No message',
+            timestamp: step.timestamp,
+          });
+          
+          setReasoningSteps((prev) => {
+            const updated = [...prev, step];
+            console.log('📊 Updated reasoning steps array. New length:', updated.length);
+            console.log('📊 Steps:', updated.map(s => ({ 
+              type: s.type, 
+              msg: s.message ? s.message.substring(0, 30) : 'No message' 
+            })));
+            return updated;
+          });
+        });
+        
+        console.log('✅ Analysis complete:', analysis);
+        setAiAnalysis(analysis);
+      } catch (streamError) {
+        console.warn('⚠️ Streaming failed, trying non-streaming mode:', streamError);
+        
+        // Fallback to non-streaming mode
+        setReasoningSteps((prev) => [
+          ...prev,
+          {
+            type: 'info',
+            message: 'Streaming unavailable, using standard mode...',
+            timestamp: Date.now(),
+          },
+        ]);
+        
+        const analysis = await analyzeJobWithAI(Number(job.id), activeCVId);
+        console.log('✅ Analysis complete (non-streaming):', analysis);
+        setAiAnalysis(analysis);
+      }
+    } catch (error) {
+      console.error('❌ Failed to analyze job with AI:', error);
+      setAiAnalysis(null);
+      setReasoningSteps((prev) => [
+        ...prev,
+        {
+          type: 'error',
+          message: error instanceof Error ? error.message : 'Failed to analyze job',
+          timestamp: Date.now(),
+        },
+      ]);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   return (
     <>
-      <ScoreBreakdownDialog 
+      <ScoreBreakdownDialog
         job={job}
         open={showScoreDialog}
         onOpenChange={setShowScoreDialog}
+      />
+      <AIJobAnalysisModal
+        isOpen={showAIAnalysisModal}
+        onClose={() => {
+          setShowAIAnalysisModal(false);
+          setReasoningSteps([]); // Clear steps when closing
+        }}
+        job={{ id: Number(job.id), title: job.title, company: job.company }}
+        analysis={aiAnalysis}
+        isLoading={isAnalyzing}
+        reasoningSteps={reasoningSteps}
       />
       <div
       className={`border-b border-gray-200 last:border-b-0 py-4 transition-all duration-200 cursor-pointer group relative ${
@@ -138,16 +217,16 @@ export function JobCard({ job, onOptimizeCV, isSelected = false, onSelect }: Job
             <ExternalLink className="h-3 w-3" />
             View Job
           </Button>
-          {/* {onOptimizeCV && (
-            <Button
-              size="sm"
-              className="gap-1 text-xs h-7"
-              onClick={handleOptimizeClick}
-            >
-              <Sparkles className="h-3 w-3" />
-              Optimize CV
-            </Button>
-          )} */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1 text-xs h-7 bg-gradient-to-r from-purple-50 to-blue-50 hover:from-purple-100 hover:to-blue-100 border-purple-200"
+            onClick={handleAIAnalysisClick}
+            disabled={isAnalyzing}
+          >
+            <Sparkles className="h-3 w-3 text-purple-600" />
+            {isAnalyzing ? 'Analyzing...' : 'AI Job Analysis'}
+          </Button>
         </div>
       </div>
     </div>

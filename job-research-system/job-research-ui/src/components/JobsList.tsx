@@ -8,7 +8,7 @@ import { FilterModal } from './FilterModal';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
-import { Briefcase, X, Search, AlertCircle, Filter as FilterIcon, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { X, Search, AlertCircle, Filter as FilterIcon, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import type { Job } from '../types';
 import api from '../services/api';
 
@@ -33,7 +33,7 @@ export function JobsList({ onCompanySelectorOpen }: JobsListProps) {
     loadJobs,
     isLoading
   } = useJobStore();
-  const { setRightPanelView, openEditProfile, showAlert } = useUIStore();
+  const { openEditProfile, showAlert } = useUIStore();
   const { profile, activeCVId, updateProfile } = useUserStore();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
@@ -198,15 +198,6 @@ export function JobsList({ onCompanySelectorOpen }: JobsListProps) {
     console.log('✅ Selected job ID set');
   };
 
-  const handleOptimizeCV = (job: Job) => {
-    console.log('🎯 Optimize CV clicked for:', job.title, 'ID:', job.id);
-    // Set the selected job in the store
-    setSelectedJobId(job.id);
-    console.log('✅ Selected job ID set');
-    // Switch right panel to optimizer view
-    setRightPanelView('optimizer');
-    console.log('✅ Right panel view set to optimizer');
-  };
 
   const handleApplyFilters = (filters: { locations: string[]; jobTypes: string[] }) => {
     console.log('🔍 Applying filters:', filters);
@@ -223,56 +214,54 @@ export function JobsList({ onCompanySelectorOpen }: JobsListProps) {
 
   return (
     <div className="h-full flex flex-col bg-white">
-      {/* Ribbon Alert for Filtered Jobs */}
-      {hasActiveFilters && allFilteredJobs.length > 0 && allFilteredJobs.length < allJobs.length && (
-        <div className="bg-white border-b border-gray-200 px-5 py-2 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm text-gray-800">
-            <div className="flex items-center gap-1.5 bg-green-50 px-2 py-1 rounded-md">
-              <div className="h-2 w-2 rounded-full bg-green-500"></div>
-              <span className="font-medium text-xs text-green-800">AI Analysis Ready</span>
-            </div>
-            <span className="text-xs">
-              {allFilteredJobs.length} of {allJobs.length} jobs matched.
-            </span>
-            <button
-              onClick={openEditProfile}
-              className="text-blue-800 underline hover:text-gray-700 font-medium text-xs"
-            >
-              Update preferences
-            </button>
+      {/* Unified Header Bar */}
+      <div className="bg-white border-b border-gray-200 px-5 py-2 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          {/* AI Analysis Ready Indicator */}
+          <div className="flex items-center gap-1.5 bg-green-50 px-2 py-1 rounded-md">
+            <div className="h-2 w-2 rounded-full bg-green-500"></div>
+            <span className="font-medium text-xs text-green-800">AI Analysis Ready</span>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-xs text-gray-700 hover:text-gray-900 h-6"
-            onClick={handleShowAllJobs}
-          >
-            Show All Jobs
-          </Button>
-        </div>
-      )}
 
-      {/* Header */}
-      <div className="border-b border-gray-200 bg-gray-50/90 px-5 py-2">
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-bold text-gray-900">Opportunities</h2>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleAnalyzeAllJobs}
-                disabled={isAnalyzing || !activeCVId}
-                className="gap-1.5 text-xs h-7"
-              >
-                <RefreshCw className={`h-3 w-3 ${isAnalyzing ? 'animate-spin' : ''}`} />
-                {isAnalyzing ? 'Analyzing...' : 'Analyze All Jobs'}
-              </Button>
-              <span className="text-xs font-normal text-gray-600 bg-gray-100 px-2.5 py-1 rounded-md">
-                {allFilteredJobs.length} found
-              </span>
-            </div>
-          </div>
+          {/* Job Count */}
+          <span className="text-xs text-gray-700">
+            {allFilteredJobs.length < allJobs.length ? (
+              <>
+                <span className="font-semibold">{allFilteredJobs.length}</span> of <span className="font-semibold">{allJobs.length}</span> jobs matched
+              </>
+            ) : (
+              <>
+                <span className="font-semibold">{allJobs.length}</span> jobs found
+              </>
+            )}
+          </span>
+
+          {/* Preferences Link */}
+          <span className="text-gray-300">•</span>
+          <button
+            onClick={openEditProfile}
+            className="text-blue-600 hover:text-blue-700 underline font-medium text-xs"
+          >
+            {hasPreferences ? 'Update preferences' : 'Set preferences'}
+          </button>
+        </div>
+
+        {/* Analyze All Jobs Button */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleAnalyzeAllJobs}
+          disabled={isAnalyzing || !activeCVId}
+          className="gap-1.5 text-xs h-7"
+        >
+          <RefreshCw className={`h-3 w-3 ${isAnalyzing ? 'animate-spin' : ''}`} />
+          {isAnalyzing ? 'Analyzing...' : 'Analyze All Jobs'}
+        </Button>
+      </div>
+
+      {/* Search and Filters Section */}
+      <div className="border-b border-gray-200 bg-gray-50/90 px-5 py-3">
+        <div className="space-y-3">
 
           {/* Filter Input */}
           <div className="relative">
@@ -397,7 +386,6 @@ export function JobsList({ onCompanySelectorOpen }: JobsListProps) {
                 job={job}
                 isSelected={selectedJobId === job.id}
                 onSelect={handleSelectJob}
-                onOptimizeCV={handleOptimizeCV}
               />
             ))}
           </div>

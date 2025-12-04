@@ -105,10 +105,10 @@ export function CVUploader() {
         filteredJobsCount: filteredCount,
         totalJobsCount: totalCount,
         onAnalyzeFiltered: async () => {
-          await analyzeJobs(cvId, filteredCount);
+          await analyzeJobs(cvId);
         },
         onAnalyzeAll: async () => {
-          await analyzeJobs(cvId, totalCount);
+          await analyzeJobs(cvId);
         },
       });
     } catch (error) {
@@ -230,10 +230,10 @@ export function CVUploader() {
         filteredJobsCount: filteredCount,
         totalJobsCount: totalCount,
         onAnalyzeFiltered: async () => {
-          await analyzeJobs(data.cv.id, filteredCount);
+          await analyzeJobs(data.cv.id);
         },
         onAnalyzeAll: async () => {
-          await analyzeJobs(data.cv.id, totalCount);
+          await analyzeJobs(data.cv.id);
         },
       });
     } catch (err) {
@@ -243,7 +243,7 @@ export function CVUploader() {
     }
   };
 
-  const analyzeJobs = async (cvId: number, expectedCount: number) => {
+  const analyzeJobs = async (cvId: number) => {
     try {
       const analyzeResponse = await api.post('/jobs/analyze-all', {
         cv_id: cvId,

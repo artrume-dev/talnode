@@ -20,7 +20,7 @@ import { LinkedInImport } from './LinkedInImport';
 import { OnboardingWizard } from './OnboardingWizard';
 import { CustomAlert, AnalyzeJobsAlert } from './ui/alert-dialog-custom';
 import { Button } from './ui/button';
-import { Briefcase, Search, Bell, Plus, LogOut, User } from 'lucide-react';
+import { Briefcase, Search, Bell, Plus, LogOut } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import {
