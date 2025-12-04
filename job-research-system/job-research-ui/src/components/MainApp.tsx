@@ -147,6 +147,10 @@ export function MainApp() {
           <CVOptimizer
             job={job}
             onClose={() => setRightPanelView('preview')}
+            onCVUpdated={() => {
+              // CV updated - localStorage in JobCard will handle state updates
+              console.log('✅ CV updated, JobCard components will detect change automatically');
+            }}
           />
         );
       case 'preview':

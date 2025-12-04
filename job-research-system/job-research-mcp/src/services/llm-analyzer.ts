@@ -11,7 +11,7 @@
 
 import Database from 'better-sqlite3';
 import { JobDatabase } from '../db/schema.js';
-import { extractSkills, calculateEmbeddingSimilarity } from './tool-helpers.js';
+import { extractSkills, calculateEmbeddingSimilarity, analyzeRoleLevel } from './tool-helpers.js';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -343,11 +343,13 @@ Evaluate across these 5 dimensions:
 - Remote/hybrid setup
 
 ### 4. Growth Potential (15% weight)
-- **Use calculate_similarity** with comparison_type="growth_potential" for objective score
-- Career trajectory match
-- Learning opportunities
-- Leadership potential
-- Impact scope
+- **ALWAYS call analyze_role_level** first to get structured career progression data
+- Use the returned growthScore (0-100) as a baseline, then adjust based on:
+  - Learning opportunities mentioned in job description
+  - Leadership potential and scope
+  - Impact scope and visibility
+  - Company growth stage (startup vs enterprise)
+- Combine role level analysis with calculate_similarity for comprehensive scoring
 
 ### 5. Practical Factors (10% weight)
 - Location/remote flexibility
@@ -457,12 +459,74 @@ Return ONLY valid JSON (no markdown, no code blocks, no explanations):
           },
         },
       },
+      {
+        type: 'function' as const,
+        function: {
+          name: 'analyze_role_level',
+          description: 'Analyze role levels and career progression. Use this to determine growth potential by comparing the job level vs candidate level. Returns structured data about career progression direction (step up, lateral, step down) and growth score. ALWAYS use this tool before scoring growth_potential category.',
+          parameters: {
+            type: 'object',
+            properties: {
+              job_title: {
+                type: 'string',
+                description: 'The job title (e.g., "Senior Software Engineer", "Lead Designer")',
+              },
+              job_description: {
+                type: 'string',
+                description: 'The full job description text',
+              },
+              cv_content: {
+                type: 'string',
+                description: 'The candidate CV content (first 2000 characters is usually sufficient)',
+              },
+            },
+            required: ['job_title', 'job_description', 'cv_content'],
+          },
+        },
+      },
     ];
 
     const messages: any[] = [
       {
         role: 'system',
-        content: 'You are a job analysis specialist. Use the provided tools to ensure consistent, data-driven scoring. ALWAYS use extract_skills before scoring technical_match. Use calculate_similarity for alignment scoring to get objective numerical scores. Return only valid JSON matching the exact structure specified. Be honest and specific in your analysis.'
+        content: `You are a job analysis specialist with access to powerful tools for consistent, data-driven scoring.
+
+## Your Role
+Analyze job fit using a 5-category weighted framework. Your goal is to provide honest, specific, and actionable insights to help candidates make informed career decisions.
+
+## Available Tools (USE THEM!)
+
+1. **extract_skills(text)** - Deterministically extracts skills from text
+   - ALWAYS call this on both job requirements AND CV content before scoring technical_match
+   - Returns normalized skill lists with categories
+   - Use the extracted skills directly in your analysis
+
+2. **calculate_similarity(text1, text2, comparison_type)** - Calculates semantic similarity using embeddings
+   - Use for objective alignment scoring: role_alignment, technical_match, company_fit, growth_potential
+   - Returns numerical score (0-100) - USE THIS SCORE DIRECTLY in your calculations
+   - Provides interpretation (very high/high/moderate/low/very low)
+
+3. **analyze_role_level(job_title, job_description, cv_content)** - Analyzes career progression
+   - ALWAYS call this before scoring growth_potential category
+   - Returns structured progression data (step_up, lateral, step_down)
+   - Returns baseline growth score (0-100) - use as starting point, then adjust based on other factors
+   - Helps identify red flags (overqualified candidates, career regression)
+
+## Tool Usage Rules
+
+- **Technical Match:** MUST call extract_skills first, then use calculate_similarity
+- **Role Alignment:** Use calculate_similarity with comparison_type="role_alignment"
+- **Company Fit:** Use calculate_similarity with comparison_type="company_fit"
+- **Growth Potential:** MUST call analyze_role_level first, then use calculate_similarity, combine both for final score
+- **Practical Factors:** No tools needed, use your reasoning
+
+## Output Requirements
+
+- Return ONLY valid JSON (no markdown, no code blocks, no explanations)
+- Match the exact structure specified in the user prompt
+- Use tool outputs directly in your scoring calculations
+- Be honest and specific in reasoning - help candidates make informed decisions
+- Flag red flags clearly (seniority mismatch, unrealistic requirements, culture concerns)`
       },
       {
         role: 'user',
@@ -558,6 +622,30 @@ Return ONLY valid JSON (no markdown, no code blocks, no explanations):
                 similarity: similarity.similarity,
                 interpretation: similarity.interpretation,
                 comparison_type: toolArgs.comparison_type,
+              });
+            } else if (toolName === 'analyze_role_level') {
+              this.emitProgress('info', 'Analyzing role levels and career progression...');
+              const roleAnalysis = analyzeRoleLevel(
+                toolArgs.job_title,
+                toolArgs.job_description,
+                toolArgs.cv_content
+              );
+              toolResult = {
+                jobLevel: roleAnalysis.jobLevel.levelName,
+                candidateLevel: roleAnalysis.candidateLevel.levelName,
+                progression: roleAnalysis.progression.direction,
+                progressionDescription: roleAnalysis.progression.description,
+                growthScore: roleAnalysis.growthScore.score,
+                growthReasoning: roleAnalysis.growthScore.reasoning,
+                recommendation: roleAnalysis.recommendation,
+              };
+              console.log(`✅ Role level analysis: ${roleAnalysis.candidateLevel.levelName} → ${roleAnalysis.jobLevel.levelName} (${roleAnalysis.progression.direction})`);
+              this.emitProgress('tool_result', `Role progression: ${roleAnalysis.progression.description}`, {
+                tool: toolName,
+                jobLevel: roleAnalysis.jobLevel.levelName,
+                candidateLevel: roleAnalysis.candidateLevel.levelName,
+                progression: roleAnalysis.progression.direction,
+                growthScore: roleAnalysis.growthScore.score,
               });
             } else {
               toolResult = { error: `Unknown tool: ${toolName}` };

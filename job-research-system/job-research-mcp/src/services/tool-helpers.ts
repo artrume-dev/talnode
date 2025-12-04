@@ -325,3 +325,284 @@ export async function calculateEmbeddingSimilarity(
   }
 }
 
+// ============================================================================
+// ROLE-LEVEL LOOKUP TOOL
+// ============================================================================
+
+/**
+ * Standardized role levels hierarchy
+ * Ordered from entry-level to most senior
+ */
+export enum RoleLevel {
+  INTERN = 0,
+  JUNIOR = 1,
+  MID = 2,
+  SENIOR = 3,
+  LEAD = 4,
+  STAFF = 5,
+  PRINCIPAL = 6,
+  ARCHITECT = 7,
+  DIRECTOR = 8,
+  VP = 9,
+  C_LEVEL = 10,
+}
+
+/**
+ * Role level patterns - maps keywords to standardized levels
+ * More specific patterns should come first
+ */
+const ROLE_LEVEL_PATTERNS: Array<{ level: RoleLevel; patterns: string[]; minYears?: number; maxYears?: number }> = [
+  // C-Level
+  { level: RoleLevel.C_LEVEL, patterns: ['chief', 'cto', 'cfo', 'ceo', 'cpo', 'cmo', 'ciso', 'chief technology officer', 'chief product officer'] },
+  
+  // VP Level
+  { level: RoleLevel.VP, patterns: ['vice president', 'vp of', 'vp engineering', 'vp product', 'vp design'] },
+  
+  // Director Level
+  { level: RoleLevel.DIRECTOR, patterns: ['director of', 'director', 'head of', 'head of engineering', 'head of product', 'head of design'], minYears: 8 },
+  
+  // Architect Level
+  { level: RoleLevel.ARCHITECT, patterns: ['architect', 'solution architect', 'system architect', 'technical architect'], minYears: 10 },
+  
+  // Principal Level
+  { level: RoleLevel.PRINCIPAL, patterns: ['principal', 'principal engineer', 'principal designer', 'principal product', 'principal software'], minYears: 8 },
+  
+  // Staff Level
+  { level: RoleLevel.STAFF, patterns: ['staff', 'staff engineer', 'staff designer', 'staff software', 'staff product'], minYears: 7 },
+  
+  // Lead Level
+  { level: RoleLevel.LEAD, patterns: ['lead', 'tech lead', 'engineering lead', 'team lead', 'technical lead', 'lead engineer', 'lead designer', 'lead product', 'lead software'], minYears: 5 },
+  
+  // Senior Level
+  { level: RoleLevel.SENIOR, patterns: ['senior', 'sr.', 'sr ', 'senior engineer', 'senior designer', 'senior product', 'senior software', 'senior developer'], minYears: 4, maxYears: 8 },
+  
+  // Mid Level
+  { level: RoleLevel.MID, patterns: ['mid', 'mid-level', 'mid level', 'engineer', 'designer', 'developer', 'product manager', 'software engineer'], minYears: 2, maxYears: 5 },
+  
+  // Junior Level
+  { level: RoleLevel.JUNIOR, patterns: ['junior', 'jr.', 'jr ', 'entry', 'entry-level', 'entry level', 'associate', 'associate engineer', 'associate designer'], minYears: 0, maxYears: 2 },
+  
+  // Intern Level
+  { level: RoleLevel.INTERN, patterns: ['intern', 'internship', 'intern engineer', 'intern designer'] },
+];
+
+/**
+ * Extract role level from job title or CV text
+ */
+function extractRoleLevel(text: string): {
+  level: RoleLevel;
+  levelName: string;
+  confidence: 'high' | 'medium' | 'low';
+  matchedPattern?: string;
+} {
+  const normalized = normalizeText(text);
+  
+  // Try to match patterns (more specific first)
+  for (const { level, patterns } of ROLE_LEVEL_PATTERNS) {
+    for (const pattern of patterns) {
+      const normalizedPattern = normalizeText(pattern);
+      // Check for word boundary match
+      const regex = new RegExp(`\\b${normalizedPattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+      if (regex.test(normalized)) {
+        return {
+          level,
+          levelName: RoleLevel[level],
+          confidence: 'high',
+          matchedPattern: pattern,
+        };
+      }
+    }
+  }
+  
+  // If no match found, try to infer from context
+  // Check for years of experience mentions
+  const yearsMatch = normalized.match(/(\d+)\+?\s*(years?|yrs?|y\.?)\s*(of\s*)?(experience|exp)/i);
+  if (yearsMatch) {
+    const years = parseInt(yearsMatch[1]);
+    if (years >= 10) {
+      return { level: RoleLevel.PRINCIPAL, levelName: 'PRINCIPAL', confidence: 'low' };
+    } else if (years >= 7) {
+      return { level: RoleLevel.STAFF, levelName: 'STAFF', confidence: 'low' };
+    } else if (years >= 5) {
+      return { level: RoleLevel.LEAD, levelName: 'LEAD', confidence: 'low' };
+    } else if (years >= 3) {
+      return { level: RoleLevel.SENIOR, levelName: 'SENIOR', confidence: 'low' };
+    } else if (years >= 1) {
+      return { level: RoleLevel.MID, levelName: 'MID', confidence: 'low' };
+    }
+  }
+  
+  // Default to mid-level if no clear indication
+  return { level: RoleLevel.MID, levelName: 'MID', confidence: 'low' };
+}
+
+/**
+ * Determine career progression direction
+ */
+function getProgressionDirection(jobLevel: RoleLevel, candidateLevel: RoleLevel): {
+  direction: 'step_up' | 'lateral' | 'step_down' | 'significant_step_down';
+  levelDifference: number;
+  description: string;
+} {
+  const difference = jobLevel - candidateLevel;
+  
+  if (difference >= 2) {
+    return {
+      direction: 'step_up',
+      levelDifference: difference,
+      description: `Significant step up: ${RoleLevel[candidateLevel]} → ${RoleLevel[jobLevel]} (${difference} levels)`,
+    };
+  } else if (difference === 1) {
+    return {
+      direction: 'step_up',
+      levelDifference: difference,
+      description: `Step up: ${RoleLevel[candidateLevel]} → ${RoleLevel[jobLevel]}`,
+    };
+  } else if (difference === 0) {
+    return {
+      direction: 'lateral',
+      levelDifference: 0,
+      description: `Lateral move: Both ${RoleLevel[jobLevel]} level`,
+    };
+  } else if (difference === -1) {
+    return {
+      direction: 'step_down',
+      levelDifference: difference,
+      description: `Step down: ${RoleLevel[candidateLevel]} → ${RoleLevel[jobLevel]}`,
+    };
+  } else {
+    return {
+      direction: 'significant_step_down',
+      levelDifference: difference,
+      description: `Significant step down: ${RoleLevel[candidateLevel]} → ${RoleLevel[jobLevel]} (${Math.abs(difference)} levels)`,
+    };
+  }
+}
+
+/**
+ * Calculate growth potential score based on role levels
+ */
+function calculateGrowthScore(progression: ReturnType<typeof getProgressionDirection>): {
+  score: number; // 0-100
+  reasoning: string;
+} {
+  switch (progression.direction) {
+    case 'step_up':
+      if (progression.levelDifference >= 2) {
+        return {
+          score: 95,
+          reasoning: `Excellent growth opportunity - significant step up (${progression.levelDifference} levels). This role offers substantial career advancement.`,
+        };
+      } else {
+        return {
+          score: 85,
+          reasoning: `Good growth opportunity - step up to next level. Natural career progression.`,
+        };
+      }
+    case 'lateral':
+      return {
+        score: 60,
+        reasoning: `Lateral move - maintains current level. May offer different challenges or domain exposure.`,
+      };
+    case 'step_down':
+      return {
+        score: 30,
+        reasoning: `Step down in seniority - may indicate career change, pivot, or work-life balance priority. Limited growth potential.`,
+      };
+    case 'significant_step_down':
+      return {
+        score: 10,
+        reasoning: `Significant step down - major career regression. Likely a red flag unless intentional pivot.`,
+      };
+    default:
+      return {
+        score: 50,
+        reasoning: `Unclear progression direction.`,
+      };
+  }
+}
+
+/**
+ * Analyze role levels and career progression
+ * This tool helps determine growth potential by comparing job level vs candidate level
+ */
+export function analyzeRoleLevel(
+  jobTitle: string,
+  jobDescription: string,
+  cvContent: string
+): {
+  jobLevel: {
+    level: RoleLevel;
+    levelName: string;
+    confidence: 'high' | 'medium' | 'low';
+  };
+  candidateLevel: {
+    level: RoleLevel;
+    levelName: string;
+    confidence: 'high' | 'medium' | 'low';
+  };
+  progression: {
+    direction: 'step_up' | 'lateral' | 'step_down' | 'significant_step_down';
+    levelDifference: number;
+    description: string;
+  };
+  growthScore: {
+    score: number;
+    reasoning: string;
+  };
+  recommendation: string;
+} {
+  // Extract levels
+  const jobTitleLower = jobTitle.toLowerCase();
+  const combinedJobText = `${jobTitle} ${jobDescription}`.substring(0, 1000); // Limit for performance
+  const jobLevel = extractRoleLevel(combinedJobText);
+  
+  // Extract candidate level from CV (look for current position, most recent role)
+  // Try to find current position first
+  const currentPositionMatch = cvContent.match(/current\s+(position|role|title|job)[:\s]+([^\n]+)/i) ||
+                                cvContent.match(/(?:^|\n)\s*([A-Z][^\n]{10,60}(?:engineer|designer|developer|manager|lead|senior|principal|architect)[^\n]{0,30})/i);
+  
+  let candidateText = cvContent.substring(0, 2000); // First 2000 chars usually contain current role
+  if (currentPositionMatch) {
+    candidateText = currentPositionMatch[0] + ' ' + candidateText;
+  }
+  
+  const candidateLevel = extractRoleLevel(candidateText);
+  
+  // Determine progression
+  const progression = getProgressionDirection(jobLevel.level, candidateLevel.level);
+  
+  // Calculate growth score
+  const growthScore = calculateGrowthScore(progression);
+  
+  // Generate recommendation
+  let recommendation: string;
+  if (progression.direction === 'step_up' && progression.levelDifference >= 2) {
+    recommendation = 'Excellent growth opportunity - significant advancement potential';
+  } else if (progression.direction === 'step_up') {
+    recommendation = 'Good growth opportunity - natural career progression';
+  } else if (progression.direction === 'lateral') {
+    recommendation = 'Lateral move - consider if offers new challenges or domain exposure';
+  } else if (progression.direction === 'step_down') {
+    recommendation = 'Step down - evaluate if intentional (career pivot, work-life balance)';
+  } else {
+    recommendation = 'Significant step down - likely not a good fit unless intentional career change';
+  }
+  
+  return {
+    jobLevel: {
+      level: jobLevel.level,
+      levelName: jobLevel.levelName,
+      confidence: jobLevel.confidence,
+    },
+    candidateLevel: {
+      level: candidateLevel.level,
+      levelName: candidateLevel.levelName,
+      confidence: candidateLevel.confidence,
+    },
+    progression,
+    growthScore,
+    recommendation,
+  };
+}
+

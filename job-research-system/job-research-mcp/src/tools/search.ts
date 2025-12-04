@@ -7,10 +7,12 @@ export interface SearchFilters {
   status?: Job['status'];
   priority?: Job['priority'];
   minAlignment?: number;
+  includeExpired?: boolean;
 }
 
 /**
  * Search for new jobs from watched companies
+ * Also tracks job expiry by marking seen jobs and incrementing expiry counter for missing jobs
  */
 export async function searchNewJobs(
   db: JobDatabase,
@@ -22,11 +24,15 @@ export async function searchNewJobs(
     : await scrapeAllCompanies(db);
 
   const newJobs: Job[] = [];
+  const seenJobIds = new Set<string>();
 
+  // Process scraped jobs
   for (const job of scrapedJobs) {
+    seenJobIds.add(job.job_id);
+
     // Check if job already exists
     const existing = db.getJobById(job.job_id);
-    
+
     if (!existing) {
       // Add new job to database
       const id = db.addJob({
@@ -47,11 +53,32 @@ export async function searchNewJobs(
         notes: null,
       });
 
+      // Mark new job as seen
+      db.markJobAsSeen(job.job_id);
+
       const added = db.getJobById(job.job_id);
       if (added) {
         newJobs.push(added);
       }
+    } else {
+      // Job still exists, mark it as seen (resets expiry check count)
+      db.markJobAsSeen(job.job_id);
     }
+  }
+
+  // Track jobs that were NOT found in this scrape
+  const allExistingJobs = db.getAllJobsForExpiryCheck();
+  for (const existingJob of allExistingJobs) {
+    if (!seenJobIds.has(existingJob.job_id)) {
+      // Job was not found in scrape, increment its expiry check count
+      db.incrementExpiryCheckCount(existingJob.job_id);
+    }
+  }
+
+  // Detect and mark expired jobs (missed 3+ times)
+  const expiredJobIds = db.detectExpiredJobs(3);
+  if (expiredJobIds.length > 0) {
+    console.log(`Marked ${expiredJobIds.length} jobs as expired`);
   }
 
   return newJobs;
@@ -59,6 +86,7 @@ export async function searchNewJobs(
 
 /**
  * Get jobs from database with filters
+ * By default, filters out expired jobs unless includeExpired is true
  */
 export function getJobs(db: JobDatabase, filters?: SearchFilters): Job[] {
   // If company_ids are provided, convert them to company names
@@ -84,6 +112,11 @@ export function getJobs(db: JobDatabase, filters?: SearchFilters): Job[] {
   // Filter by company names if provided
   if (companyNames && companyNames.length > 0) {
     jobs = jobs.filter(job => companyNames!.includes(job.company));
+  }
+
+  // Filter out expired jobs by default
+  if (!filters?.includeExpired) {
+    jobs = jobs.filter(job => !job.is_expired);
   }
 
   return jobs;

@@ -538,6 +538,44 @@ app.post('/api/tools/search_ai_jobs', authenticateUser, async (req, res) => {
   }
 });
 
+// Job sync endpoint - manually refresh jobs and detect expired ones
+app.post('/api/jobs/sync', authenticateUser, async (req, res) => {
+  try {
+    const { companies } = req.body;
+
+    console.log('🔄 Starting job sync...');
+    const startTime = Date.now();
+
+    // Run scraping with expiry detection
+    const newJobs = await searchNewJobs(db, companies);
+
+    // Get count of expired jobs
+    const allJobs = db.getJobs({});
+    const expiredCount = allJobs.filter(j => j.is_expired).length;
+    const activeCount = allJobs.filter(j => !j.is_expired).length;
+
+    const duration = Date.now() - startTime;
+
+    console.log(`✅ Job sync completed in ${duration}ms`);
+    console.log(`   - New jobs found: ${newJobs.length}`);
+    console.log(`   - Expired jobs: ${expiredCount}`);
+    console.log(`   - Active jobs: ${activeCount}`);
+
+    res.json({
+      success: true,
+      newJobsCount: newJobs.length,
+      expiredCount,
+      activeCount,
+      totalCount: allJobs.length,
+      duration,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('❌ Job sync error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/tools/get_jobs', authenticateUser, (req, res) => {
   try {
     const filters = { ...req.body, user_id: req.user!.userId };

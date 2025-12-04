@@ -37,6 +37,8 @@ export function JobsList({ onCompanySelectorOpen }: JobsListProps) {
   const { profile, activeCVId, updateProfile } = useUserStore();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
 
   const jobs = paginatedJobs();
   const allFilteredJobs = filteredJobs();
@@ -147,6 +149,47 @@ export function JobsList({ onCompanySelectorOpen }: JobsListProps) {
     selectedCompanies: selectedCompanies.length
   });
 
+  const handleSyncJobs = async () => {
+    setIsSyncing(true);
+    try {
+      console.log('🔄 Starting job sync...');
+      const response = await api.post('/jobs/sync', {
+        companies: selectedCompanies.length > 0 ? selectedCompanies : undefined,
+      });
+
+      const data = response.data;
+      console.log('✅ Job sync completed:', data);
+
+      // Update last sync time
+      setLastSyncTime(new Date().toLocaleTimeString());
+
+      // Reload jobs to show updated list
+      await loadJobs();
+
+      // Show success message
+      const message = data.newJobsCount > 0
+        ? `Found ${data.newJobsCount} new job${data.newJobsCount > 1 ? 's' : ''}!`
+        : 'No new jobs found. All jobs are up to date.';
+
+      showAlert({
+        title: 'Sync Complete',
+        description: `${message}\n\nActive jobs: ${data.activeCount}\nExpired: ${data.expiredCount}`,
+        confirmText: 'OK',
+        variant: data.newJobsCount > 0 ? 'success' : 'default',
+      });
+    } catch (error) {
+      console.error('❌ Job sync failed:', error);
+      showAlert({
+        title: 'Sync Failed',
+        description: 'Failed to sync jobs. Please try again.',
+        confirmText: 'OK',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleAnalyzeAllJobs = async () => {
     if (!activeCVId) {
       showAlert({
@@ -246,17 +289,33 @@ export function JobsList({ onCompanySelectorOpen }: JobsListProps) {
           </button>
         </div>
 
-        {/* Analyze All Jobs Button */}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleAnalyzeAllJobs}
-          disabled={isAnalyzing || !activeCVId}
-          className="gap-1.5 text-xs h-7"
-        >
-          <RefreshCw className={`h-3 w-3 ${isAnalyzing ? 'animate-spin' : ''}`} />
-          {isAnalyzing ? 'Analyzing...' : 'Analyze All Jobs'}
-        </Button>
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2">
+          {/* Refresh Jobs Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSyncJobs}
+            disabled={isSyncing}
+            className="gap-1.5 text-xs h-7"
+            title="Refresh job listings and detect expired jobs"
+          >
+            <RefreshCw className={`h-3 w-3 ${isSyncing ? 'animate-spin' : ''}`} />
+            {isSyncing ? 'Syncing...' : 'Refresh Jobs'}
+          </Button>
+
+          {/* Analyze All Jobs Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleAnalyzeAllJobs}
+            disabled={isAnalyzing || !activeCVId}
+            className="gap-1.5 text-xs h-7"
+          >
+            <RefreshCw className={`h-3 w-3 ${isAnalyzing ? 'animate-spin' : ''}`} />
+            {isAnalyzing ? 'Analyzing...' : 'Analyze All Jobs'}
+          </Button>
+        </div>
       </div>
 
       {/* Search and Filters Section */}
