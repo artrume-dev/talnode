@@ -24,6 +24,9 @@ export interface Job {
   notes: string | null;
   found_date: string;
   last_updated: string;
+  last_seen_date: string | null;
+  is_expired: boolean;
+  expiry_check_count: number;
 }
 
 export interface CompanyWatch {
@@ -64,7 +67,10 @@ export class JobDatabase {
         priority TEXT DEFAULT 'medium',
         notes TEXT,
         found_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_seen_date TIMESTAMP,
+        is_expired INTEGER DEFAULT 0,
+        expiry_check_count INTEGER DEFAULT 0
       )
     `);
 
@@ -79,16 +85,41 @@ export class JobDatabase {
       )
     `);
 
+    // Migrate existing databases - add new columns if they don't exist BEFORE creating indexes
+    this.migrateSchema();
+
     // Create indexes
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
       CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company);
       CREATE INDEX IF NOT EXISTS idx_jobs_priority ON jobs(priority);
       CREATE INDEX IF NOT EXISTS idx_jobs_found_date ON jobs(found_date);
+      CREATE INDEX IF NOT EXISTS idx_jobs_is_expired ON jobs(is_expired);
     `);
 
     // Seed initial company watch list
     this.seedCompanies();
+  }
+
+  private migrateSchema() {
+    // Check if new columns exist, if not add them
+    const tableInfo = this.db.prepare("PRAGMA table_info(jobs)").all() as Array<{ name: string }>;
+    const columnNames = tableInfo.map(col => col.name);
+
+    if (!columnNames.includes('last_seen_date')) {
+      console.log('Adding last_seen_date column to jobs table...');
+      this.db.exec('ALTER TABLE jobs ADD COLUMN last_seen_date TIMESTAMP');
+    }
+
+    if (!columnNames.includes('is_expired')) {
+      console.log('Adding is_expired column to jobs table...');
+      this.db.exec('ALTER TABLE jobs ADD COLUMN is_expired INTEGER DEFAULT 0');
+    }
+
+    if (!columnNames.includes('expiry_check_count')) {
+      console.log('Adding expiry_check_count column to jobs table...');
+      this.db.exec('ALTER TABLE jobs ADD COLUMN expiry_check_count INTEGER DEFAULT 0');
+    }
   }
 
   private seedCompanies() {
@@ -116,10 +147,10 @@ export class JobDatabase {
   }
 
   // Job CRUD operations
-  addJob(job: Omit<Job, 'id' | 'found_date' | 'last_updated'>): number {
+  addJob(job: Omit<Job, 'id' | 'found_date' | 'last_updated' | 'last_seen_date' | 'is_expired' | 'expiry_check_count'>): number {
     const stmt = this.db.prepare(`
       INSERT INTO jobs (
-        job_id, company, title, url, description, requirements, 
+        job_id, company, title, url, description, requirements,
         tech_stack, location, remote, alignment_score, status, priority, notes
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
@@ -197,15 +228,55 @@ export class JobDatabase {
   updateAlignmentScore(jobId: string, score: number, strongMatches?: string[], gaps?: string[]): void {
     const strongMatchesJson = strongMatches ? JSON.stringify(strongMatches) : null;
     const gapsJson = gaps ? JSON.stringify(gaps) : null;
-    
+
     this.db
-      .prepare(`UPDATE jobs 
-        SET alignment_score = ?, 
-            strong_matches = ?, 
-            gaps = ?, 
-            last_updated = CURRENT_TIMESTAMP 
+      .prepare(`UPDATE jobs
+        SET alignment_score = ?,
+            strong_matches = ?,
+            gaps = ?,
+            last_updated = CURRENT_TIMESTAMP
         WHERE job_id = ?`)
       .run(score, strongMatchesJson, gapsJson, jobId);
+  }
+
+  // Job expiry tracking operations
+  markJobAsSeen(jobId: string): void {
+    this.db
+      .prepare('UPDATE jobs SET last_seen_date = CURRENT_TIMESTAMP, expiry_check_count = 0, is_expired = 0 WHERE job_id = ?')
+      .run(jobId);
+  }
+
+  incrementExpiryCheckCount(jobId: string): void {
+    this.db
+      .prepare('UPDATE jobs SET expiry_check_count = expiry_check_count + 1 WHERE job_id = ?')
+      .run(jobId);
+  }
+
+  markJobAsExpired(jobId: string): void {
+    this.db
+      .prepare('UPDATE jobs SET is_expired = 1 WHERE job_id = ?')
+      .run(jobId);
+  }
+
+  detectExpiredJobs(maxMissedChecks: number = 3): string[] {
+    // Get job_ids of jobs that have been missed too many times and aren't already marked as expired
+    const expiredJobs = this.db
+      .prepare('SELECT job_id FROM jobs WHERE expiry_check_count >= ? AND is_expired = 0')
+      .all(maxMissedChecks) as Array<{ job_id: string }>;
+
+    // Mark them as expired
+    expiredJobs.forEach(job => {
+      this.markJobAsExpired(job.job_id);
+    });
+
+    return expiredJobs.map(j => j.job_id);
+  }
+
+  getAllJobsForExpiryCheck(): Job[] {
+    // Get all non-expired jobs for checking if they're still active
+    return this.db
+      .prepare('SELECT * FROM jobs WHERE is_expired = 0')
+      .all() as Job[];
   }
 
   // Company watch list operations
@@ -401,20 +472,21 @@ export class JobDatabase {
   }
 
   updateCVContent(cvId: number, content: string, userId?: number): void {
+    const now = new Date().toISOString();
     if (userId) {
       const stmt = this.db.prepare(`
         UPDATE cv_documents
-        SET parsed_content = ?
+        SET parsed_content = ?, uploaded_at = ?
         WHERE id = ? AND user_id = ?
       `);
-      stmt.run(content, cvId, userId);
+      stmt.run(content, now, cvId, userId);
     } else {
       const stmt = this.db.prepare(`
         UPDATE cv_documents
-        SET parsed_content = ?
+        SET parsed_content = ?, uploaded_at = ?
         WHERE id = ?
       `);
-      stmt.run(content, cvId);
+      stmt.run(content, now, cvId);
     }
   }
 

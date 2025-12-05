@@ -10,6 +10,7 @@ import api from '../services/api';
 interface CVOptimizerProps {
   job: Job;
   onClose: () => void;
+  onCVUpdated?: () => void;
 }
 
 interface CVVersion {
@@ -19,20 +20,22 @@ interface CVVersion {
   content: string;
 }
 
-export function CVOptimizer({ job, onClose }: CVOptimizerProps) {
+export function CVOptimizer({ job, onClose, onCVUpdated }: CVOptimizerProps) {
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingCV, setIsLoadingCV] = useState(false);
   const [versions, setVersions] = useState<CVVersion[]>([]);
   const [selectedVersion, setSelectedVersion] = useState<'conservative' | 'optimized' | 'stretch'>('optimized');
+  const [usedVersions, setUsedVersions] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [baselineAlignment, setBaselineAlignment] = useState<number>(0);
   const [strongMatches, setStrongMatches] = useState<string[]>([]);
   const [gaps, setGaps] = useState<string[]>([]);
   const [cvContent, setCVContent] = useState<string>('');
+  const [originalCVContent, setOriginalCVContent] = useState<string>('');
 
-  const { activeCVId, cvDocuments, updateCVContent } = useUserStore();
+  const { activeCVId, cvDocuments, updateCVContent, setCVDocuments } = useUserStore();
 
   // Load CV content when component mounts
   useState(() => {
@@ -50,13 +53,16 @@ export function CVOptimizer({ job, onClose }: CVOptimizerProps) {
         const localCV = (cvDocuments || []).find(cv => cv.id === activeCVId);
         if (localCV?.parsed_content) {
           setCVContent(localCV.parsed_content);
+          setOriginalCVContent(localCV.parsed_content);
           setIsLoadingCV(false);
           return;
         }
 
         // If not in store, fetch from API
         const response = await api.get(`/cv/${activeCVId}`);
-        setCVContent(response.data.parsed_content || '');
+        const content = response.data.parsed_content || '';
+        setCVContent(content);
+        setOriginalCVContent(content);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load CV content');
         console.error('CV loading error:', err);
@@ -72,28 +78,6 @@ export function CVOptimizer({ job, onClose }: CVOptimizerProps) {
     if (!cvContent) {
       setError('No CV content available. Please upload a CV first.');
       return;
-    }
-
-    // Safety check: Warn if alignment score is too low
-    const alignmentScore = job.alignment_score ?? 0;
-    if (alignmentScore < 50) {
-      const warningMessage = alignmentScore < 30
-        ? `⚠️ CRITICAL WARNING: This job has a very low match score (${alignmentScore}%).\n\n` +
-          `This indicates a fundamental domain mismatch between your experience and the job requirements. ` +
-          `Optimizing your CV for this role is likely to result in fabricated content, which will be automatically rejected.\n\n` +
-          `❌ We strongly recommend NOT applying to this job.\n` +
-          `✅ Instead, focus on jobs with 50%+ alignment that match your actual background.\n\n` +
-          `Do you still want to proceed?`
-        : `⚠️ WARNING: This job has a low match score (${alignmentScore}%).\n\n` +
-          `This job has significant gaps from your actual experience. The CV optimizer may struggle to create a ` +
-          `truthful optimized version without fabricating content.\n\n` +
-          `Consider focusing on jobs with better alignment (50%+).\n\n` +
-          `Do you want to proceed anyway?`;
-
-      const proceed = window.confirm(warningMessage);
-      if (!proceed) {
-        return;
-      }
     }
 
     setIsOptimizing(true);
@@ -124,20 +108,31 @@ export function CVOptimizer({ job, onClose }: CVOptimizerProps) {
 
     try {
       // Save optimized CV content to the database
-      await api.put('/cv/update', {
+      const response = await api.put('/cv/update', {
         cv_id: activeCVId,
         parsed_content: selectedVersionData.content,
       });
 
-      // Update local store using store action
-      updateCVContent(activeCVId, selectedVersionData.content);
+      console.log('✅ CV updated in database:', response.data);
 
-      setSuccess(`CV updated successfully with ${selectedVersionData.type} version!`);
+      // Reload CV list to get updated uploaded_at timestamp
+      const cvListResponse = await api.get('/cv/list');
+      const cvs = cvListResponse.data.cvs || [];
+      setCVDocuments(cvs);
+      console.log('✅ CV list reloaded with updated timestamps');
 
-      // Close optimizer after 1.5 seconds to show CV preview
+      // Mark this version as used
+      setUsedVersions(prev => new Set([...prev, selectedVersionData.type]));
+
+      // Notify parent that CV was updated (to reset job analysis)
+      onCVUpdated?.();
+
+      setSuccess(`CV updated successfully with ${selectedVersionData.type} version! Re-analyze jobs for updated match scores.`);
+
+      // Clear success message after 3 seconds
       setTimeout(() => {
-        onClose();
-      }, 1500);
+        setSuccess(null);
+      }, 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update CV');
       console.error('CV update error:', err);
@@ -248,28 +243,39 @@ export function CVOptimizer({ job, onClose }: CVOptimizerProps) {
           <>
             {/* Version Selector */}
             <div className="flex gap-2">
-              {versions.map((version) => (
-                <button
-                  key={version.type}
-                  onClick={() => setSelectedVersion(version.type)}
-                  className={`flex-1 p-4 rounded-lg border-2 transition-all ${
-                    selectedVersion === version.type
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border hover:border-primary/50'
-                  }`}
-                >
-                  <div className="text-sm font-semibold capitalize mb-1">
-                    {version.type}
-                    {version.type === 'optimized' && (
-                      <Badge variant="default" className="ml-2 text-xs">Recommended</Badge>
+              {versions.map((version) => {
+                const isUsed = usedVersions.has(version.type);
+                return (
+                  <button
+                    key={version.type}
+                    onClick={() => setSelectedVersion(version.type)}
+                    className={`flex-1 p-4 rounded-lg border-2 transition-all relative ${
+                      selectedVersion === version.type
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border hover:border-primary/50'
+                    } ${isUsed ? 'opacity-60' : ''}`}
+                  >
+                    {isUsed && (
+                      <div className="absolute top-2 right-2">
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                          <Check className="h-2.5 w-2.5 mr-0.5" />
+                          Used
+                        </Badge>
+                      </div>
                     )}
-                  </div>
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <TrendingUp className="h-3 w-3" />
-                    {version.alignment}% match
-                  </div>
-                </button>
-              ))}
+                    <div className="text-sm font-semibold capitalize mb-1">
+                      {version.type}
+                      {version.type === 'optimized' && !isUsed && (
+                        <Badge variant="default" className="ml-2 text-xs">Recommended</Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <TrendingUp className="h-3 w-3" />
+                      {version.alignment}% match
+                    </div>
+                  </button>
+                );
+              })}
             </div>
 
             {/* Selected Version Details */}
