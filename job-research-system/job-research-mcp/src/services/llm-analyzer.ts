@@ -224,8 +224,30 @@ export class LLMJobAnalyzer {
       // Parse JSON response
       this.emitProgress('info', 'Parsing LLM response...');
       const content = apiResponse.choices[0].message.content;
-      result = JSON.parse(content);
-      jsonParseSuccess = true;
+
+      // Try to parse JSON with better error handling
+      try {
+        result = JSON.parse(content);
+        jsonParseSuccess = true;
+      } catch (parseError) {
+        // Log the content that failed to parse for debugging
+        console.error('❌ JSON Parse Error:', parseError);
+        console.error('📄 Content that failed to parse (first 2000 chars):');
+        console.error(content.substring(0, 2000));
+        console.error('📄 Content around position 1110:');
+        console.error(content.substring(1050, 1200));
+
+        // Try to extract JSON from markdown code blocks if present
+        const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonMatch) {
+          console.log('⚠️ Found JSON in markdown block, extracting...');
+          result = JSON.parse(jsonMatch[1]);
+          jsonParseSuccess = true;
+        } else {
+          // Re-throw with more context
+          throw new Error(`JSON parse failed at position 1110. This may be due to unescaped quotes in the AI response. Error: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+        }
+      }
 
       // Estimate token counts (rough approximation)
       tokenCountInput = Math.ceil(prompt.length / 4);

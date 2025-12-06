@@ -12,7 +12,8 @@
       "Bash(npm run build:*)",
       "Bash(npm run start:express:*)",
       "Bash(npm run dev:*)",
-      "Bash(npm run migrate:*)"
+      "Bash(npm run migrate:*)",
+      "Bash(sqlite3:*)"
     ],
     "deny": [],
     "ask": []

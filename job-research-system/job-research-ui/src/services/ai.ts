@@ -43,7 +43,7 @@ class AIService {
           }
         ],
         temperature: 0.7,
-        max_tokens: 4000,
+        max_tokens: 4096,
       }),
     });
 
@@ -70,7 +70,7 @@ class AIService {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 4096,
+        max_tokens: 16000,
         messages: [
           {
             role: 'user',
@@ -144,16 +144,23 @@ These rules override ALL other instructions. Violating these will result in imme
 ${cvContent}
 
 ## Task
-Create 3 CV versions with different optimization levels:
-
-1. **Conservative (75% target):** Minimal changes, emphasize strongest alignments
-2. **Optimized (85% target):** Strategic reframing and keyword optimization (RECOMMENDED)
-3. **Stretch (90% target):** Maximum legitimate optimization, emphasize transferable skills
+Create 2 CV versions with different optimization levels:
+1. **Optimized (85% target):** Strategic reframing and keyword optimization (RECOMMENDED)
+2. **Stretch (90% target):** Maximum legitimate optimization, emphasize transferable skills
 
 For each version, provide:
 - Estimated alignment score
 - List of 3-5 key changes made
-- Full optimized CV content in markdown
+- **COMPLETE** optimized CV content in HTML format with proper formatting tags
+
+⚠️ **CRITICAL FORMATTING REQUIREMENTS:**
+- Return CV content in HTML format, NOT markdown
+- Use proper HTML tags: <h1>, <h2>, <h3>, <p>, <strong>, <ul>, <li>, <br> etc.
+- **INCLUDE THE ENTIRE CV** - Do not truncate or summarize any sections
+- Preserve ALL bullet points, experiences, skills, and content from the original
+- The "content" field must contain the FULL, COMPLETE CV with all sections
+- **CRITICAL**: Use single quotes (') instead of double quotes (") for all HTML attributes to avoid JSON escaping issues
+  Example: <a href='https://example.com'>Link</a> NOT <a href="https://example.com">Link</a>
 
 Also identify:
 - Strong matches between CV and job requirements
@@ -181,7 +188,7 @@ Return your response in this exact JSON format (ensure all strings are properly 
         "Updated professional summary",
         "Highlighted relevant experience"
       ],
-      "content": "Full CV content here in markdown format"
+      "content": "<h1>John Doe</h1><p>Email: john@example.com | Phone: 555-1234</p><h2>PROFESSIONAL SUMMARY</h2><p>Full professional summary here...</p><h2>EXPERIENCE</h2><h3>Senior Designer at Company A</h3><p><strong>Jan 2020 - Present</strong></p><ul><li>Achievement 1 with specific details</li><li>Achievement 2 with metrics</li></ul><!-- Include ALL sections -->"
     },
     {
       "type": "optimized",
@@ -192,7 +199,7 @@ Return your response in this exact JSON format (ensure all strings are properly 
         "Reordered achievements by relevance",
         "Updated skills section priority"
       ],
-      "content": "Full CV content here in markdown format"
+      "content": "<h1>John Doe</h1><p>Email: john@example.com | Phone: 555-1234</p><h2>PROFESSIONAL SUMMARY</h2><p>Optimized professional summary...</p><h2>EXPERIENCE</h2><h3>Senior Designer at Company A</h3><p><strong>Jan 2020 - Present</strong></p><ul><li>Optimized achievement 1</li><li>Optimized achievement 2</li></ul><!-- Include ALL sections and content from original CV -->"
     },
     {
       "type": "stretch",
@@ -203,17 +210,20 @@ Return your response in this exact JSON format (ensure all strings are properly 
         "Added context for emerging skills",
         "Comprehensive keyword alignment"
       ],
-      "content": "Full CV content here in markdown format"
+      "content": "<h1>John Doe</h1><p>Email: john@example.com | Phone: 555-1234</p><h2>PROFESSIONAL SUMMARY</h2><p>Maximally optimized summary...</p><h2>EXPERIENCE</h2><h3>Senior Designer at Company A</h3><p><strong>Jan 2020 - Present</strong></p><ul><li>Stretch achievement 1</li><li>Stretch achievement 2</li></ul><!-- Include ALL sections and content from original CV -->"
     }
   ]
 }
 \`\`\`
 
 CRITICAL JSON FORMATTING:
-- Escape all quotes in the content field using backslash (\\")
-- Do not include newlines in JSON strings, use \\n instead
+- **ESCAPE ALL DOUBLE QUOTES** in text content using backslash: \\"
+  Example: "He said \\"Hello\\"" NOT "He said "Hello""
+- Use single quotes (') for ALL HTML attributes to avoid double quote conflicts
+- Do not include actual newlines in JSON strings, use \\n instead
 - Ensure valid JSON syntax throughout
 - The content field should be a single string with \\n for line breaks
+- Test: If CV contains quotes like "Design Lead", write it as: "Design \\"Lead\\""
 `;
 
     let response: string;

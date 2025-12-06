@@ -17,6 +17,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from './ui/alert-dialog';
+import RichTextEditor from './RichTextEditor';
 
 export function CVPreview() {
   const { cvDocuments, activeCVId, updateCVContent, removeCVDocument } = useUserStore();
@@ -32,6 +33,7 @@ export function CVPreview() {
 
   const handleEdit = () => {
     if (activeCV) {
+      // Initialize edited content with current CV content
       setEditedContent(activeCV.parsed_content);
       setIsEditing(true);
     }
@@ -59,14 +61,55 @@ export function CVPreview() {
     setEditedContent('');
   };
 
+  const convertHTMLToMarkdown = (html: string): string => {
+    // Simple HTML to Markdown conversion
+    let markdown = html;
+
+    // Convert headings
+    markdown = markdown.replace(/<h1>(.*?)<\/h1>/g, '# $1\n');
+    markdown = markdown.replace(/<h2>(.*?)<\/h2>/g, '## $1\n');
+    markdown = markdown.replace(/<h3>(.*?)<\/h3>/g, '### $1\n');
+
+    // Convert paragraphs
+    markdown = markdown.replace(/<p>(.*?)<\/p>/g, '$1\n\n');
+
+    // Convert line breaks
+    markdown = markdown.replace(/<br\s*\/?>/g, '\n');
+
+    // Convert bold and italic
+    markdown = markdown.replace(/<strong>(.*?)<\/strong>/g, '**$1**');
+    markdown = markdown.replace(/<b>(.*?)<\/b>/g, '**$1**');
+    markdown = markdown.replace(/<em>(.*?)<\/em>/g, '*$1*');
+    markdown = markdown.replace(/<i>(.*?)<\/i>/g, '*$1*');
+
+    // Convert lists
+    markdown = markdown.replace(/<ul>/g, '\n');
+    markdown = markdown.replace(/<\/ul>/g, '\n');
+    markdown = markdown.replace(/<ol>/g, '\n');
+    markdown = markdown.replace(/<\/ol>/g, '\n');
+    markdown = markdown.replace(/<li>(.*?)<\/li>/g, '- $1\n');
+
+    // Remove any remaining HTML tags
+    markdown = markdown.replace(/<[^>]+>/g, '');
+
+    // Decode HTML entities
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = markdown;
+    markdown = textarea.value;
+
+    return markdown.trim();
+  };
+
   const handleDownload = () => {
     if (!activeCV) return;
 
-    const blob = new Blob([activeCV.parsed_content], { type: 'text/markdown' });
+    // Convert HTML to Markdown for download
+    const markdownContent = convertHTMLToMarkdown(activeCV.parsed_content);
+    const blob = new Blob([markdownContent], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = activeCV.file_name;
+    a.download = activeCV.file_name.replace(/\.[^/.]+$/, '') + '.md';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -218,92 +261,19 @@ export function CVPreview() {
             </div>
           )}
           {isEditing ? (
-            <textarea
-              value={editedContent}
-              onChange={(e) => setEditedContent(e.target.value)}
-              className="w-full h-full min-h-[600px] p-4 font-mono text-sm border rounded-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white"
-              placeholder="Edit your CV content here..."
-            />
+            <div className="bg-white">
+              <RichTextEditor
+                content={editedContent}
+                onChange={(html) => setEditedContent(html)}
+                editable={true}
+              />
+            </div>
           ) : (
-            <div className="bg-white shadow-sm border border-gray-200 rounded-none p-12">
-              {/* Parse and render CV content with proper styling */}
-              <div className="cv-content">
-                <style>{`
-                  .cv-content h1 {
-                    font-size: 2.25rem;
-                    font-weight: 700;
-                    color: #000000;
-                    margin-bottom: 0.5rem;
-                    line-height: 1.2;
-                  }
-                  .cv-content .subtitle {
-                    font-size: 1.125rem;
-                    font-weight: 400;
-                    color: #374151;
-                    margin-bottom: 1rem;
-                    line-height: 1.5;
-                  }
-                  .cv-content .contact-info {
-                    font-size: 0.875rem;
-                    color: #6B7280;
-                    margin-bottom: 2rem;
-                  }
-                  .cv-content h2 {
-                    font-size: 0.75rem;
-                    font-weight: 700;
-                    color: #000000;
-                    letter-spacing: 0.1em;
-                    text-transform: uppercase;
-                    margin-top: 2.5rem;
-                    margin-bottom: 1rem;
-                    border-bottom: 1px solid #D1D5DB;
-                    padding-bottom: 0.5rem;
-                  }
-                  .cv-content h3 {
-                    font-size: 1.0625rem;
-                    font-weight: 600;
-                    color: #000000;
-                    margin-top: 1.5rem;
-                    margin-bottom: 0.25rem;
-                    line-height: 1.4;
-                  }
-                  .cv-content h4 {
-                    font-size: 0.9375rem;
-                    font-weight: 400;
-                    color: #374151;
-                    margin-bottom: 0.5rem;
-                  }
-                  .cv-content .date-range {
-                    font-size: 0.9375rem;
-                    color: #6B7280;
-                    float: right;
-                  }
-                  .cv-content p {
-                    color: #374151;
-                    line-height: 1.6;
-                    margin-bottom: 0.75rem;
-                    font-size: 0.9375rem;
-                  }
-                  .cv-content ul {
-                    list-style: disc;
-                    margin-left: 1.25rem;
-                    margin-bottom: 1rem;
-                  }
-                  .cv-content li {
-                    color: #374151;
-                    line-height: 1.6;
-                    margin-bottom: 0.375rem;
-                    font-size: 0.9375rem;
-                  }
-                  .cv-content strong {
-                    font-weight: 600;
-                    color: #000000;
-                  }
-                `}</style>
-                <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-gray-700">
-                  {activeCV.parsed_content}
-                </pre>
-              </div>
+            <div className="bg-white shadow-sm border border-gray-200 rounded-none">
+              <RichTextEditor
+                content={activeCV.parsed_content}
+                editable={false}
+              />
             </div>
           )}
         </div>

@@ -10,7 +10,33 @@ import path from 'path';
 import mammoth from 'mammoth';
 
 /**
- * Parse PDF file and extract text content
+ * Convert plain text to basic HTML with paragraph formatting
+ */
+function convertPlainTextToHTML(text: string): string {
+  // Split by double newlines for paragraphs
+  const paragraphs = text.split(/\n\n+/);
+
+  return paragraphs
+    .map(para => {
+      // Trim and skip empty paragraphs
+      const trimmed = para.trim();
+      if (!trimmed) return '';
+
+      // Check if it looks like a heading (all caps, or short line)
+      if (trimmed === trimmed.toUpperCase() && trimmed.length < 100 && !trimmed.match(/[.!?]$/)) {
+        return `<h2>${trimmed}</h2>`;
+      }
+
+      // Convert single newlines within paragraph to <br>
+      const withBreaks = trimmed.replace(/\n/g, '<br>');
+      return `<p>${withBreaks}</p>`;
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
+ * Parse PDF file and extract text content, convert to HTML
  */
 export async function parsePDF(filePath: string): Promise<string> {
   try {
@@ -19,7 +45,8 @@ export async function parsePDF(filePath: string): Promise<string> {
     const dataBuffer = await readFile(filePath);
     // @ts-expect-error - pdf-parse type definitions are incorrect for ESM
     const data = await pdfParse(dataBuffer);
-    return data.text;
+    // Convert plain text to HTML for formatting
+    return convertPlainTextToHTML(data.text);
   } catch (error) {
     console.error('Error parsing PDF:', error);
     throw new Error('Failed to parse PDF file');
@@ -27,11 +54,12 @@ export async function parsePDF(filePath: string): Promise<string> {
 }
 
 /**
- * Parse DOCX file and extract text content
+ * Parse DOCX file and extract HTML content with formatting
  */
 export async function parseDOCX(filePath: string): Promise<string> {
   try {
-    const result = await mammoth.extractRawText({ path: filePath });
+    // Extract HTML to preserve formatting
+    const result = await mammoth.convertToHtml({ path: filePath });
     return result.value;
   } catch (error) {
     console.error('Error parsing DOCX:', error);
@@ -40,7 +68,7 @@ export async function parseDOCX(filePath: string): Promise<string> {
     try {
       const content = await readFile(filePath, 'utf-8');
       if (content && content.trim().length > 0) {
-        return content;
+        return convertPlainTextToHTML(content);
       }
     } catch (textError) {
       console.error('Failed to read as plain text:', textError);
@@ -50,11 +78,13 @@ export async function parseDOCX(filePath: string): Promise<string> {
 }
 
 /**
- * Parse text or markdown file
+ * Parse text or markdown file and convert to HTML
  */
 export async function parsePlainText(filePath: string): Promise<string> {
   try {
-    return await readFile(filePath, 'utf-8');
+    const content = await readFile(filePath, 'utf-8');
+    // Convert plain text to HTML for formatting
+    return convertPlainTextToHTML(content);
   } catch (error) {
     console.error('Error reading text file:', error);
     throw new Error('Failed to read text file');
